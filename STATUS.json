@@ -1,0 +1,8 @@
+{
+  "service": "bench",
+  "name": "OpenVibe.Bench",
+  "version": "0.1.0",
+  "updated": "2026-10-28",
+  "status": "v1",
+  "summary": "The shared AI benchmark and comparison engine for every room: kinds, pinned rounds, blind judgements, elo/pareto/cost boards, an open dataset per kind, private evals and an MCP endpoint."
+}
