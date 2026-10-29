@@ -259,7 +259,7 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         const entryRows = await db.many('SELECT * FROM bench_entries WHERE round_id = $1 ORDER BY created_at, id', [r.id]);
         const revealed = viewerSubject != null && (r.created_by === viewerSubject
             || await db.value('SELECT COUNT(*)::int AS n FROM bench_judgements WHERE round_id = $1 AND subject = $2', [r.id, viewerSubject]) > 0);
-        const votes = num(await db.value('SELECT COUNT(*)::int AS n FROM bench_judgements WHERE round_id = $1', [r.id]));
+        const votes = num(await db.value("SELECT COUNT(*)::int AS n FROM bench_judgements WHERE round_id = $1 AND method <> 'game_outcome'", [r.id]));
         const entries = entryRows.map((e) => wireEntry(e, { blind: !revealed }));
         const out = { ...wireRound(r), entries, votes };
         if (!revealed) out.blind = true;
@@ -363,7 +363,7 @@ function createStore(s, { log = console, random = Math.random, config = null } =
                 let left = null;
                 let right = null;
                 if (judge === 'human_pairwise' || judge === 'game_outcome' || judge === 'audience_poll') {
-                    if (judge !== 'audience_poll' && r.created_by === subject) throw new BenchError(403, 'bench.creator_cannot_vote', 'You cannot judge a round you started.');
+                    if (judge === 'human_pairwise' && r.created_by === subject) throw new BenchError(403, 'bench.creator_cannot_vote', 'You cannot judge a round you started.');
                     const p = pair && typeof pair === 'object' ? pair : {};
                     if (!p.left || !p.right || p.left === p.right) throw new BenchError(422, 'bench.invalid_pair', 'A pairwise judgement needs two different entries.');
                     const prior = await db.maybe('SELECT 1 AS n FROM bench_judgements WHERE round_id = $1 AND subject = $2', [r.id, subject]);
