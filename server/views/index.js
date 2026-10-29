@@ -47,7 +47,7 @@ ${ep('POST', '/api/v1/kinds/:kindId/tasks', '<code>{ prompt, task_class?, public
 ${ep('POST', '/api/v1/tasks/:id/rounds', '<code>{ offers?, seed? }</code>. Pins a reproducible round; the job generates entries.')}
 ${ep('POST', '/api/v1/rounds/:id/entries', 'A room submits outside entries (a game match, a test-suite run) with a service token carrying bench.entry.create.')}
 ${ep('GET', '/api/v1/judgements/next?kind=&judge=', 'The next blind pair for this person.')}
-${ep('POST', '/api/v1/rounds/:id/judgements', '<code>{ judge?, pair?, outcome?, score? }</code>. Human judges are people; automatic/test/game judges are services with bench.judgement.cast.')}
+${ep('POST', '/api/v1/rounds/:id/judgements', '<code>{ judge?, pair?, outcome?, score?, vote_counts? }</code>. Human judges are people; automatic/test/game judges and audience_poll are services with bench.judgement.cast. An audience_poll supplies { left, right, tie, voters }; it changes Elo as one game regardless of audience size. A zero-voter poll is recorded without changing ratings.')}
 ${ep('POST', '/api/v1/evals', 'Create a private task suite (never in the public dataset).')}
 ${ep('POST', '/api/v1/evals/:id/run', 'Run a private eval against chosen offers, under the free daily cap.')}
 ${ep('GET', '/api/v1/evals/:id/results', 'A private eval and its runs.')}

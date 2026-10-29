@@ -24,7 +24,7 @@
  * token with bench.* capabilities. A session write must come from bench.openvibe.services itself.
  */
 const express = require('express');
-const { http } = require('openvibe-contracts');
+const { http, ids } = require('openvibe-contracts');
 const { asyncRouter } = require('./router');
 const { sameOrigin } = require('./same-origin');
 const { kindById } = require('../kinds');
@@ -47,6 +47,14 @@ function createApi(ctx) {
     };
 
     const subjectOf = (req) => (req.principal && req.principal.kind === 'user' ? req.principal.subject : null);
+    // A trusted room service may start a task for its signed-in creator. Quotas then belong to that
+    // creator, while service judgements continue to belong to the service principal itself.
+    const creatorOf = (req) => {
+        const person = subjectOf(req);
+        if (person) return person;
+        const acting = req.principal.requester === 'service:live' ? req.headers['x-ov-subject'] : null;
+        return ids.isSubjectId('user', acting) ? acting : req.principal.requester;
+    };
 
     /** A person (any signed-in user) or a service token with the named capability. */
     function actor(cap) {
@@ -85,7 +93,7 @@ function createApi(ctx) {
     // ── Tasks ───────────────────────────────────────────────
     r.post('/kinds/:kindId/tasks', actor('bench.task.create'), async (req, res) => {
         const b = req.body && typeof req.body === 'object' ? req.body : {};
-        const owner = subjectOf(req) || req.principal.requester;
+        const owner = creatorOf(req);
         const out = await bench.createTask({
             kindId: String(req.params.kindId || ''),
             prompt: b.prompt,
@@ -108,7 +116,7 @@ function createApi(ctx) {
     // ── Rounds ──────────────────────────────────────────────
     r.post('/tasks/:id/rounds', actor('bench.round.create'), async (req, res) => {
         const b = req.body && typeof req.body === 'object' ? req.body : {};
-        const owner = subjectOf(req) || req.principal.requester;
+        const owner = creatorOf(req);
         try {
             const out = await bench.createRound({
                 taskId: String(req.params.id || ''),
@@ -180,7 +188,7 @@ function createApi(ctx) {
                 const out = await bench.castJudgement({
                     roundId, kindId: b.kind_id, judge,
                     judgeName: b.judge_name, judgeVersion: b.judge_version,
-                    pair: b.pair, outcome: b.outcome, score: b.score, subject,
+                    pair: b.pair, outcome: b.outcome, score: b.score, voteCounts: b.vote_counts, subject,
                 });
                 res.set('Cache-Control', 'private, no-store');
                 return res.status(201).json(out);

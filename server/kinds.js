@@ -6,7 +6,7 @@
  * of an entry payload and its `metrics` are the axes a board may show.
  */
 
-const JUDGES = Object.freeze(['human_pairwise', 'rubric', 'automatic_grader', 'test_suite', 'game_outcome']);
+const JUDGES = Object.freeze(['human_pairwise', 'audience_poll', 'rubric', 'automatic_grader', 'test_suite', 'game_outcome']);
 
 /** Pairwise winners as the blind voter saw them; both_bad is a game for neither. */
 const WINNERS = Object.freeze(['left', 'right', 'tie', 'both_bad']);
