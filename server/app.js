@@ -36,6 +36,7 @@ const { createBenchAi } = require('./bench/ai');
 const { createBenchJobs } = require('./bench/jobs');
 const { createPublisher } = require('./events/publisher');
 const { mcpRouter } = require('./mcp');
+const protectedResource = require('./http/protected-resource');
 const { createNetworkSender } = require('openvibe-sdk/account-data');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -148,6 +149,14 @@ async function createApp(opts = {}) {
     app.use('/api/v1', createApi(ctx));
     app.use(mcpRouter(ctx));
     app.use('/api', (req, res) => contracts.http.sendProblem(res, 404, 'route.not_found', { detail: 'No such API route', ctx: req.ov }));
+
+    // ── RFC 9728: the MCP endpoint's protected-resource metadata ──
+    // The document a client reads to learn that openvibe.network signs the tokens /mcp accepts, and the URL the
+    // 401 challenge names (server/http/protected-resource.js).
+    app.get('/.well-known/oauth-protected-resource', (_req, res) => {
+        res.set('Cache-Control', 'public, max-age=3600');
+        res.json(protectedResource.document(config));
+    });
 
     // ── Pages ───────────────────────────────────────────────
     app.use(rateLimit({ windowMs: 60_000, limit: Number(process.env.BENCH_RATE_LIMIT_PER_MIN) || 300, standardHeaders: true, legacyHeaders: false }));

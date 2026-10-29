@@ -73,7 +73,7 @@ const rpc = (method, params, id = 1) => ({ jsonrpc: '2.0', id, method, ...(param
         assert.match(r.json().result.content[0].text, /No such kind/);
     });
 
-    await check('a person-only tool is a tool error when anonymous', async () => {
+    await check('a person-only tool answers 401 when anonymous', async () => {
         for (const call of [
             { name: 'bench.next_pair', arguments: { kind: 'design.page' } },
             { name: 'bench.cast_judgement', arguments: { round: 'brd_nope', left: 'bte_1', right: 'bte_2', outcome: 'left' } },
@@ -81,8 +81,9 @@ const rpc = (method, params, id = 1) => ({ jsonrpc: '2.0', id, method, ...(param
             { name: 'bench.run_eval', arguments: { kind: 'vision.answer', test_suite: [{ prompt: 'x' }] } },
         ]) {
             const r = await t.get('/mcp', { json: rpc('tools/call', call, 11) });
-            assert.strictEqual(r.json().result.isError, true, `${call.name} should be a person error`);
-            assert.match(r.json().result.content[0].text, /person/);
+            assert.strictEqual(r.status, 401, `${call.name} should ask for a token: ${r.text}`);
+            assert.match(r.headers.get('www-authenticate'), /^Bearer resource_metadata="/);
+            assert.strictEqual(r.json().error.code, -32001);
         }
     });
 

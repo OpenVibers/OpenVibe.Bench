@@ -6,10 +6,15 @@
  * and a JSON-RPC parse error for malformed bodies.
  *
  * The six tools are the §4.12 list. A person is a Network user token as a Bearer (or the bench_at session cookie).
+ *
+ * A call that needs a token and has none answers 401 with WWW-Authenticate: Bearer resource_metadata="…", so the
+ * client learns where the protected-resource metadata is (RFC 9728; server/http/protected-resource.js).
  */
 
 const express = require('express');
+const { http } = require('openvibe-contracts');
 const pkg = require('../package.json');
+const protectedResource = require('./http/protected-resource');
 
 const PROTOCOL_VERSION = '2025-06-18';
 const SUPPORTED_VERSIONS = Object.freeze(new Set(['2025-06-18', '2025-03-26']));
@@ -86,8 +91,14 @@ function subjectOf(req) {
     return req.principal && req.principal.kind === 'user' && req.principal.subject ? req.principal.subject : null;
 }
 
+/**
+ * A tool that needs a person. An anonymous caller is told how to authenticate (401 and the RFC 9728 challenge); a
+ * service token is a caller, not a person, and keeps the tool error.
+ */
 function requirePersonTool(id, req) {
     if (subjectOf(req)) return null;
+    const kind = req.principal && req.principal.kind;
+    if (!kind || kind === 'anonymous') return { unauthorized: true, id };
     return { response: result(id, { content: [{ type: 'text', text: 'This tool needs a person: sign in, or send a Network user token as a Bearer.' }], isError: true }) };
 }
 
@@ -178,6 +189,41 @@ async function handleMessage(msg, req, ctx) {
     }
 }
 
+/**
+ * The caller, with the RFC 9728 challenge on a 401: a client whose token does not verify is told where the
+ * protected-resource metadata is.
+ */
+function mcpAuth(ctx) {
+    return async (req, res, next) => {
+        let r;
+        try {
+            r = await ctx.principal.resolve(req);
+        } catch (err) {
+            return next(err);
+        }
+        if (r.error) {
+            if (r.error[0] === 401) protectedResource.challenge(res, ctx.config);
+            return http.sendProblem(res, r.error[0], r.error[1], { detail: r.error[2], ctx: req.ov });
+        }
+        req.principal = r.principal;
+        return next();
+    };
+}
+
+/** 401 and the challenge: the call needs a token, and this is where to read how to get one. */
+function unauthorized(res, id, ctx) {
+    protectedResource.challenge(res, ctx.config);
+    return res.status(401).json({
+        jsonrpc: '2.0',
+        id: id === undefined ? null : id,
+        error: {
+            code: -32001,
+            message: 'Unauthorized: this tool needs a person. Send a Network user token as a Bearer.',
+            data: { resource_metadata: protectedResource.metadataUrl(ctx.config) },
+        },
+    });
+}
+
 function mcpRouter(ctx) {
     const router = express.Router();
     const json = express.json({ limit: BODY_LIMIT, type: ['application/json', 'application/*+json'], strict: false });
@@ -190,7 +236,7 @@ function mcpRouter(ctx) {
         res.status(204).end();
     });
 
-    router.post('/mcp', json, ctx.principal.middleware, async (req, res) => {
+    router.post('/mcp', json, mcpAuth(ctx), async (req, res) => {
         const version = req.get('mcp-protocol-version');
         if (version && !SUPPORTED_VERSIONS.has(version)) {
             const body = req.body;
@@ -205,6 +251,7 @@ function mcpRouter(ctx) {
         const responses = [];
         for (const message of messages) {
             const out = await handleMessage(message, req, ctx);
+            if (out.unauthorized) return unauthorized(res, out.id, ctx);
             if (out.response) responses.push(out.response);
         }
         if (!responses.length) return res.status(202).end();
