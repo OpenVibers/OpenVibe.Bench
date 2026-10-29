@@ -9,6 +9,7 @@ const { boot, check, done } = require('./helpers/boot');
     const bob = t.network.addUser('bob');
     const entrySvc = t.network.serviceToken({ sub: 'svc:room', audience: 'openvibe.bench', cap: ['bench.entry.create'] });
     const judgeSvc = t.network.serviceToken({ sub: 'svc:judge', audience: 'openvibe.bench', cap: ['bench.judgement.cast'] });
+    const gamesSvc = t.network.serviceToken({ sub: 'svc:games', audience: 'openvibe.bench', cap: ['bench.task.create', 'bench.round.create', 'bench.entry.create', 'bench.judgement.cast'] });
 
     let winRound;
     let winPair;
@@ -101,10 +102,39 @@ const { boot, check, done } = require('./helpers/boot');
 
     await check('game outcome: a service casts a draw from a pair', async () => {
         const { roundId, entryIds } = await makeRound('games.match', ['acme/alpha-1', 'beta/beta-2']);
-        const vote = await t.get(`/api/v1/rounds/${roundId}/judgements`, { bearer: judgeSvc, json: { judge: 'game_outcome', pair: { left: entryIds[0], right: entryIds[1] }, outcome: 'draw' } });
+        const refused = await t.get(`/api/v1/rounds/${roundId}/judgements`, { bearer: judgeSvc, json: { judge: 'game_outcome', pair: { left: entryIds[0], right: entryIds[1] }, outcome: 'left' } });
+        assert.strictEqual(refused.status, 403, refused.text);
+        const vote = await t.get(`/api/v1/rounds/${roundId}/judgements`, { bearer: gamesSvc, json: { judge: 'game_outcome', pair: { left: entryIds[0], right: entryIds[1] }, outcome: 'draw' } });
         assert.strictEqual(vote.status, 201, vote.text);
         assert.strictEqual(vote.json().judgement.judge, 'game_outcome');
         assert.strictEqual(vote.json().judgement.outcome, 'draw');
+    });
+
+    await check('Games match reaches the JSON API with replay and cost per seat', async () => {
+        const task = await t.get('/api/v1/kinds/games.match/tasks', { bearer: gamesSvc, json: { prompt: 'Vibe Heroes draft duel', public: true } });
+        assert.strictEqual(task.status, 201, task.text);
+        const rr = await t.get(`/api/v1/tasks/${task.json().task.id}/rounds`, { bearer: gamesSvc, json: { seed: 17 } });
+        assert.strictEqual(rr.status, 201, rr.text);
+        const rid = rr.json().round.id;
+        const entries = [];
+        for (const [side, cost] of [[0, 0.012], [1, 0.019]]) {
+            const e = await t.get(`/api/v1/rounds/${rid}/entries`, { bearer: gamesSvc, json: {
+                provider: 'acme', model: `seat-${side}`, cost_usd: cost,
+                payload: { result: { game: 'vibe-heroes', side, replay_url: `https://openvibe.games/ai-matches/proof/games/1?side=${side}` } },
+            } });
+            assert.strictEqual(e.status, 201, e.text);
+            entries.push(e.json().entry.id);
+        }
+        const cast = await t.get(`/api/v1/rounds/${rid}/judgements`, { bearer: gamesSvc, json: { judge: 'game_outcome', pair: { left: entries[0], right: entries[1] }, outcome: 'left' } });
+        assert.strictEqual(cast.status, 201, cast.text);
+        assert.strictEqual(cast.json().judgement.outcome, 'left');
+        const api = await t.get('/api/v1/datasets/games.match.jsonl');
+        assert.strictEqual(api.status, 200, api.text);
+        const rows = api.text.trim().split('\n').map((line) => JSON.parse(line));
+        const matchEntries = rows.filter((row) => row.type === 'entry' && row.round_id === rid);
+        assert.deepStrictEqual(matchEntries.map((e) => e.cost_usd), [0.012, 0.019]);
+        assert.ok(matchEntries.every((e) => e.payload.result.replay_url.startsWith('https://openvibe.games/')));
+        assert.strictEqual(rows.find((row) => row.type === 'judgement' && row.round_id === rid).method, 'game_outcome');
     });
 
     await check('audience poll: counts are recorded but 100 viewers change Elo by one game', async () => {

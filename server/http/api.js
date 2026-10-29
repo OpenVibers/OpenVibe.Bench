@@ -184,6 +184,11 @@ function createApi(ctx) {
         const guard = isHuman ? requirePerson : principal.requireCapability('bench.judgement.cast');
         return guard(req, res, async () => {
             try {
+                const round = await bench.getRound(roundId, { viewerSubject: null });
+                if (!round) return problem(res, 404, 'bench.round_not_found', 'No such round.');
+                if (round.kind_id === 'games.match' && (judge !== 'game_outcome' || req.principal.requester !== 'service:games')) {
+                    return problem(res, 403, 'bench.games_service_required', 'Only the Games service may record match outcomes.');
+                }
                 const subject = isHuman ? subjectOf(req) : req.principal.requester;
                 const out = await bench.castJudgement({
                     roundId, kindId: b.kind_id, judge,

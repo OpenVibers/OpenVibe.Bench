@@ -22,6 +22,13 @@ const { boot, check, done } = require('./helpers/boot');
         for (const want of ['design.page', 'games.match', 'meme.caption', 'vision.answer', 'codes.patch', 'speech.tts', 'speech.asr', 'translate.ja', 'search.answer']) {
             assert.ok(ids.includes(want), `missing kind ${want}`);
         }
+        for (const id of ['chat.reply', 'translate.ja', 'search.answer', 'codes.patch', 'codes.review']) {
+            const kind = r.json().kinds.find((k) => k.id === id);
+            assert.ok(kind.schema.prompt && Object.keys(kind.schema.prompt).length, `${id} prompt shape`);
+            assert.ok(kind.schema.rubric?.length, `${id} judge rubric`);
+            assert.ok(kind.schema.seeds?.length, `${id} seed items`);
+            assert.ok(Object.keys(kind.schema.seeds[0]).every((key) => key in kind.schema.prompt), `${id} seed matches prompt`);
+        }
     });
 
     await check('a person creates a task and queues a round', async () => {

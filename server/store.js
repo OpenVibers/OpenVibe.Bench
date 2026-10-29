@@ -363,7 +363,7 @@ function createStore(s, { log = console, random = Math.random, config = null } =
                 let left = null;
                 let right = null;
                 if (judge === 'human_pairwise' || judge === 'game_outcome' || judge === 'audience_poll') {
-                    if (judge !== 'audience_poll' && r.created_by === subject) throw new BenchError(403, 'bench.creator_cannot_vote', 'You cannot judge a round you started.');
+                    if (judge === 'human_pairwise' && r.created_by === subject) throw new BenchError(403, 'bench.creator_cannot_vote', 'You cannot judge a round you started.');
                     const p = pair && typeof pair === 'object' ? pair : {};
                     if (!p.left || !p.right || p.left === p.right) throw new BenchError(422, 'bench.invalid_pair', 'A pairwise judgement needs two different entries.');
                     const prior = await db.maybe('SELECT 1 AS n FROM bench_judgements WHERE round_id = $1 AND subject = $2', [r.id, subject]);
