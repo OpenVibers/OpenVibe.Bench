@@ -30,3 +30,9 @@ Tests use a temporary PGlite database, an in-process mock Network and a fake AI;
 ## API
 
 JSON under `/api/v1`; errors are `application/problem+json`. See `/docs` for the full list. The MCP endpoint is `POST /mcp`.
+
+<!-- versions:start -->
+- openvibe-contracts: v0.238.0
+- openvibe-sdk: v0.70.0
+- openvibe-shared: v4.36.1
+<!-- versions:end -->
