@@ -34,6 +34,22 @@ const { boot, check, done } = require('./helpers/boot');
         assert.strictEqual(rr.json().round.status, 'queued');
     });
 
+    await check('Live starts rounds against the streamer quota', async () => {
+        const streamer = t.network.addUser('streamer');
+        const live = t.network.serviceToken({ sub: 'svc:live', cap: ['bench.task.create', 'bench.round.create'] });
+        const other = t.network.serviceToken({ sub: 'svc:other', cap: ['bench.task.create'] });
+        const headers = { 'x-ov-subject': streamer.subject };
+        const task = await t.get('/api/v1/kinds/chat.reply/tasks', { bearer: live, headers, json: { prompt: 'A stream reply.', public: true } });
+        assert.strictEqual(task.status, 201, task.text);
+        assert.strictEqual(task.json().task.created_by, streamer.subject);
+        const round = await t.get(`/api/v1/tasks/${task.json().task.id}/rounds`, { bearer: live, headers, json: {} });
+        assert.strictEqual(round.status, 201, round.text);
+        assert.strictEqual(round.json().round.created_by, streamer.subject);
+        const unrelated = await t.get('/api/v1/kinds/chat.reply/tasks', { bearer: other, headers, json: { prompt: 'Another task.' } });
+        assert.strictEqual(unrelated.status, 201, unrelated.text);
+        assert.strictEqual(unrelated.json().task.created_by, 'service:other');
+    });
+
     await check('the job generates entries and finishes the round with a receipt', async () => {
         await t.tick();
         const r = await t.get(`/api/v1/rounds/${roundId}`, { as: alice });

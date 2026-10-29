@@ -88,7 +88,8 @@ function wireJudgement(row, { withSubject = false } = {}) {
     const out = {
         id: row.id, round_id: row.round_id, kind_id: row.kind_id,
         judge: row.judge, judge_name: row.judge_name || null, judge_version: row.judge_version || null,
-        method: row.method, pair, outcome: row.outcome || null, score: row.score == null ? null : num(row.score), at: iso(row.at),
+        method: row.method, pair, outcome: row.outcome || null, score: row.score == null ? null : num(row.score),
+        vote_counts: row.vote_counts == null ? null : (typeof row.vote_counts === 'string' ? JSON.parse(row.vote_counts) : row.vote_counts), at: iso(row.at),
     };
     if (withSubject) out.subject = row.subject || null;
     return out;
@@ -308,7 +309,7 @@ function createStore(s, { log = console, random = Math.random, config = null } =
     async function pairwiseGames(kindId, category = CATEGORY_DEFAULT) {
         const rows = await db.many(
             `SELECT * FROM bench_judgements
-             WHERE kind_id = $1 AND method IN ('human_pairwise', 'game_outcome') AND pair IS NOT NULL
+             WHERE kind_id = $1 AND method IN ('human_pairwise', 'game_outcome', 'audience_poll') AND pair IS NOT NULL
                AND ($2::text = 'all' OR outcome IS NOT NULL)
              ORDER BY at, id`,
             [kindId, category],
@@ -318,6 +319,10 @@ function createStore(s, { log = console, random = Math.random, config = null } =
             const pair = typeof j.pair === 'string' ? JSON.parse(j.pair) : j.pair;
             if (!pair || !pair.left || !pair.right) continue;
             if (j.outcome === 'both_bad') continue;
+            if (j.method === 'audience_poll') {
+                const counts = typeof j.vote_counts === 'string' ? JSON.parse(j.vote_counts) : j.vote_counts;
+                if (!counts || !num(counts.voters)) continue;
+            }
             out.push({ a: pair.left, b: pair.right, outcome: j.outcome === 'left' ? 1 : j.outcome === 'right' ? 0 : 0.5 });
         }
         return out;
@@ -344,18 +349,21 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         };
     }
 
-    async function castJudgement({ roundId, kindId, judge, judgeName = null, judgeVersion = null, pair = null, outcome = null, score = null, subject }) {
+    async function castJudgement({ roundId, kindId, judge, judgeName = null, judgeVersion = null, pair = null, outcome = null, score = null, voteCounts = null, subject }) {
         if (!JUDGES.includes(judge)) throw new BenchError(422, 'bench.invalid_judge', 'Unknown judge.');
         try {
             return await s.tx(async () => {
                 const r = await db.maybe('SELECT * FROM bench_rounds WHERE id = $1 FOR UPDATE', [String(roundId || '')]);
                 if (!r) throw new BenchError(404, 'bench.round_not_found', 'No such Bench round.');
                 if (r.status !== 'finished' && r.status !== 'ready') throw new BenchError(409, 'bench.round_not_ready', 'This round is not ready to judge yet.');
+                if (judge === 'audience_poll' && kindById(r.kind_id)?.judge !== 'human_pairwise') {
+                    throw new BenchError(422, 'bench.invalid_judge', 'Audience polls require a pairwise kind.');
+                }
 
                 let left = null;
                 let right = null;
-                if (judge === 'human_pairwise' || judge === 'game_outcome') {
-                    if (r.created_by === subject) throw new BenchError(403, 'bench.creator_cannot_vote', 'You cannot judge a round you started.');
+                if (judge === 'human_pairwise' || judge === 'game_outcome' || judge === 'audience_poll') {
+                    if (judge !== 'audience_poll' && r.created_by === subject) throw new BenchError(403, 'bench.creator_cannot_vote', 'You cannot judge a round you started.');
                     const p = pair && typeof pair === 'object' ? pair : {};
                     if (!p.left || !p.right || p.left === p.right) throw new BenchError(422, 'bench.invalid_pair', 'A pairwise judgement needs two different entries.');
                     const prior = await db.maybe('SELECT 1 AS n FROM bench_judgements WHERE round_id = $1 AND subject = $2', [r.id, subject]);
@@ -364,18 +372,28 @@ function createStore(s, { log = console, random = Math.random, config = null } =
                     if (rows.length !== 2) throw new BenchError(422, 'bench.invalid_pair', 'Those two entries are not both part of this round.');
                     left = wireEntry(rows.find((o) => o.id === p.left));
                     right = wireEntry(rows.find((o) => o.id === p.right));
-                    const allowed = judge === 'game_outcome' ? ['left', 'right', 'draw'] : WINNERS;
+                    const allowed = judge === 'game_outcome' ? ['left', 'right', 'draw'] : judge === 'audience_poll' ? ['left', 'right', 'tie'] : WINNERS;
                     if (!allowed.includes(outcome)) throw new BenchError(422, 'bench.invalid_outcome', `The outcome must be ${allowed.join(', ')}.`);
+                    if (judge === 'audience_poll') {
+                        const c = voteCounts;
+                        if (!c || !['left', 'right', 'tie', 'voters'].every((k) => Number.isSafeInteger(c[k]) && c[k] >= 0)
+                            || c.left + c.right + c.tie !== c.voters || c.voters > 1000000
+                            || outcome !== (c.left > c.right && c.left > c.tie ? 'left' : c.right > c.left && c.right > c.tie ? 'right' : 'tie')) {
+                            throw new BenchError(422, 'bench.invalid_vote_counts', 'Poll counts and outcome must agree.');
+                        }
+                        voteCounts = { left: c.left, right: c.right, tie: c.tie, voters: c.voters };
+                    } else if (voteCounts != null) throw new BenchError(422, 'bench.invalid_vote_counts', 'Only an audience poll carries vote counts.');
                 }
 
                 const id = s.newId('bju');
                 const row = await db.maybe(
-                    `INSERT INTO bench_judgements (id, round_id, kind_id, judge, judge_name, judge_version, method, pair, outcome, score, subject, at)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12::timestamptz) RETURNING *`,
+                    `INSERT INTO bench_judgements (id, round_id, kind_id, judge, judge_name, judge_version, method, pair, outcome, score, subject, at, vote_counts)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12::timestamptz, $13::jsonb) RETURNING *`,
                     [id, r.id, r.kind_id, judge, judgeName, judgeVersion, judge, pair ? JSON.stringify(pair) : null,
-                        outcome || null, score == null ? null : num(score), subject || null, s.iso()],
+                        outcome || null, score == null ? null : num(score), subject || null, s.iso(), voteCounts ? JSON.stringify(voteCounts) : null],
                 );
-                if (judge === 'human_pairwise' || judge === 'game_outcome') {
+                // One stream poll is one game, regardless of audience size. The counts are evidence, not Elo weight.
+                if (judge === 'human_pairwise' || judge === 'game_outcome' || (judge === 'audience_poll' && voteCounts.voters > 0)) {
                     await applyPairwiseRating(r.id, r.kind_id, left, right, outcome);
                 }
                 await insertOutbox('bench.judgement.recorded', {

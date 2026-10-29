@@ -100,6 +100,7 @@ const BENCH_SCHEMAS = Object.freeze({
             pair: { type: ['object', 'null'] },
             outcome: { type: ['string', 'null'] },
             score: { type: ['number', 'null'] },
+            vote_counts: { type: ['object', 'null'] },
             at: { type: 'string', format: 'date-time' },
         },
     },
