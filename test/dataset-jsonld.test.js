@@ -7,8 +7,10 @@
 const assert = require('assert');
 const { boot, check, done } = require('./helpers/boot');
 
-const nodes = (html, type) => [...String(html).matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)]
-    .map((m) => JSON.parse(m[1])).filter((x) => x['@type'] === type);
+// One JSON-LD script per page: every node lives in the page's @graph.
+const scripts = (html) => [...String(html).matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((m) => JSON.parse(m[1]));
+const nodes = (html, type) => scripts(html)
+    .flatMap((x) => (Array.isArray(x['@graph']) ? x['@graph'] : [x])).filter((x) => x['@type'] === type);
 
 (async () => {
     const t = await boot();
@@ -19,6 +21,7 @@ const nodes = (html, type) => [...String(html).matchAll(/<script type="applicati
         assert.strictEqual(r.status, 200);
         kinds = (await t.get('/api/v1/kinds')).json().kinds;
         assert.ok(kinds.length >= 2, `only ${kinds.length} kinds`);
+        assert.strictEqual(scripts(r.text).length, 1, 'the page carries exactly one JSON-LD script');
         const sets = nodes(r.text, 'Dataset');
         assert.deepStrictEqual(sets.map((d) => d.name), kinds.map((k) => k.name));
         for (const [i, d] of sets.entries()) {

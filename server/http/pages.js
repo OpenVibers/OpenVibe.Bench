@@ -33,6 +33,15 @@ function datasetJsonLd(k, base) {
     };
 }
 
+/**
+ * The page's JSON-LD in one script: every node in one @graph, so a page carries exactly one JSON-LD script.
+ * The nodes keep their own fields; only their own @context goes, because the graph carries it once.
+ */
+function oneGraph(nodes) {
+    const graph = nodes.filter(Boolean).map((n) => { const c = { ...n }; delete c['@context']; return c; });
+    return [{ '@context': 'https://schema.org', '@graph': graph }];
+}
+
 function createPageRoutes(ctx) {
     const { config, bench } = ctx;
     const r = asyncRouter();
@@ -45,7 +54,7 @@ function createPageRoutes(ctx) {
             index: true, cache: PUBLIC_CACHE,
             title: null,
             description: 'OpenVibe.Bench is one AI benchmark and comparison engine for every room: blind votes, rubrics, graders, test suites and game outcomes, with reproducible pinned rounds and an open dataset per kind.',
-            jsonLd: [...homeJsonLd(config), ...kinds.map((k) => datasetJsonLd(k, base()))],
+            jsonLd: oneGraph([...homeJsonLd(config), ...kinds.map((k) => datasetJsonLd(k, base())), seo.jsonLd.organization()]),
             body: raw(views.home({ kinds, counts: { kinds: kinds.length } })),
         });
     });
