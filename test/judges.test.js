@@ -128,6 +128,8 @@ const { boot, check, done } = require('./helpers/boot');
         const cast = await t.get(`/api/v1/rounds/${rid}/judgements`, { bearer: gamesSvc, json: { judge: 'game_outcome', pair: { left: entries[0], right: entries[1] }, outcome: 'left' } });
         assert.strictEqual(cast.status, 201, cast.text);
         assert.strictEqual(cast.json().judgement.outcome, 'left');
+        const roundApi = await t.get(`/api/v1/rounds/${rid}`);
+        assert.strictEqual(roundApi.json().round.votes, 0, 'an automatic result is not a person vote');
         const api = await t.get('/api/v1/datasets/games.match.jsonl');
         assert.strictEqual(api.status, 200, api.text);
         const rows = api.text.trim().split('\n').map((line) => JSON.parse(line));

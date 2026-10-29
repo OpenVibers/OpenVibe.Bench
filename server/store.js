@@ -259,7 +259,7 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         const entryRows = await db.many('SELECT * FROM bench_entries WHERE round_id = $1 ORDER BY created_at, id', [r.id]);
         const revealed = viewerSubject != null && (r.created_by === viewerSubject
             || await db.value('SELECT COUNT(*)::int AS n FROM bench_judgements WHERE round_id = $1 AND subject = $2', [r.id, viewerSubject]) > 0);
-        const votes = num(await db.value('SELECT COUNT(*)::int AS n FROM bench_judgements WHERE round_id = $1', [r.id]));
+        const votes = num(await db.value("SELECT COUNT(*)::int AS n FROM bench_judgements WHERE round_id = $1 AND method <> 'game_outcome'", [r.id]));
         const entries = entryRows.map((e) => wireEntry(e, { blind: !revealed }));
         const out = { ...wireRound(r), entries, votes };
         if (!revealed) out.blind = true;
