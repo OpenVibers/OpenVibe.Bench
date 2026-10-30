@@ -83,6 +83,14 @@ const { boot, check, done } = require('./helpers/boot');
         assert.ok(one.entries[0].wrapper_url.includes('/render/w/'), 'the sandboxed frame');
     });
 
+    await check('an empty board says so, and offers a battle', async () => {
+        const page = await t.get('/ratings');
+        assert.strictEqual(page.status, 200, page.text);
+        assert.ok(page.text.includes('No battles voted yet'), 'the empty board: ' + page.text.slice(0, 200));
+        assert.ok(page.text.includes('Vote in a battle'), 'the button');
+        assert.ok(page.text.includes('href="/battle"'), 'it goes to the battle');
+    });
+
     await t.close();
     done();
 })().catch((e) => { console.error(e); process.exit(1); });
