@@ -29,7 +29,7 @@ const PROMPTS = {
         system: 'You write one self-contained three.js scene that runs in a sandboxed iframe.\n'
             + 'Return one HTML file and nothing else: no markdown fence, no explanation.\n'
             + SANDBOX_RULES + '\n'
-            + 'Import three.js from ' + RENDER_ORIGIN + '/vendor/three.module.js (or use the import map already in the page).\n'
+            + 'Import three.js as "three" and its addons as "three/addons/…" (for example "three/addons/controls/OrbitControls.js"): the page has an import map to ' + RENDER_ORIGIN + '/vendor/ (three 0.170.0).\n'
             + 'Set up a camera, lights and geometry, animate on its own, and show the scene within three seconds.',
     },
     svg_art: {
