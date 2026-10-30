@@ -27,8 +27,22 @@ const KINDS = Object.freeze([
     { id: 'speech.asr', room: 'speech', entry: 'transcript', judge: 'automatic_grader', name: 'Speech recognition', metrics: ['word_error_rate', 'cost_usd'], schema: { entry: 'transcript', payload: { transcript: 'string' } } },
     { id: 'translate.ja', room: 'translate', entry: 'translation', judge: 'human_pairwise', name: 'Japanese translation', metrics: ['elo', 'cost_usd'], schema: { entry: 'translation', payload: { translation: 'string' }, prompt: { source_text: 'string', source_language: 'string', audience: 'string' }, rubric: ['Preserve the source meaning', 'Use natural Japanese for the audience', 'Preserve names, numbers and uncertainty'], seeds: [{ source_text: 'The meeting starts at 3 p.m. Please bring the draft.', source_language: 'en', audience: 'coworker' }] } },
     { id: 'search.answer', room: 'search', entry: 'cited_answer', judge: 'human_pairwise', name: 'Cited answers', metrics: ['elo', 'cost_usd'], schema: { entry: 'cited_answer', payload: { answer: 'string', citations: 'array' }, prompt: { question: 'string', source_urls: 'array' }, rubric: ['Answer from the supplied sources', 'Cite claims with supporting URLs', 'State when the sources do not establish an answer'], seeds: [{ question: 'What year was the first release announced?', source_urls: ['https://example.org/releases'] }] } },
+    // The nine showcase kinds (spec 2, 2026-10-30). Script-bearing kinds render on the isolated render origin
+    // (server/bench/render.js): the inert in-page sandbox allows no scripts, so a game, a canvas loop, three.js or
+    // a shader cannot run there.
+    { id: 'games.play', room: 'games', entry: 'html_game', judge: 'human_pairwise', name: 'Playable games arena', metrics: ['elo', 'cost_usd', 'ms', 'crash_rate'], schema: { renderer: 'script', limit_ms: 120000, judges: ['human_pairwise', 'game_outcome'], entry: 'html_game', payload: { html: 'string' } } },
+    { id: 'games.three', room: 'games', entry: 'three_scene', judge: 'human_pairwise', name: 'three.js scenes', metrics: ['elo', 'cost_usd', 'ms', 'first_paint_ms'], schema: { renderer: 'script', limit_ms: 60000, judges: ['human_pairwise'], entry: 'three_scene', payload: { html: 'string' } } },
+    { id: 'design.svg', room: 'design', entry: 'svg_art', judge: 'human_pairwise', name: 'SVG illustration arena', metrics: ['elo', 'cost_usd', 'ms'], schema: { renderer: 'static', limit_ms: 20000, judges: ['human_pairwise'], entry: 'svg_art', payload: { svg: 'string' } } },
+    { id: 'design.motion', room: 'design', entry: 'motion_html', judge: 'human_pairwise', name: 'Motion and effects arena', metrics: ['elo', 'cost_usd', 'ms'], schema: { renderer: 'script', limit_ms: 20000, judges: ['human_pairwise'], entry: 'motion_html', payload: { html: 'string' } } },
+    { id: 'design.ui', room: 'design', entry: 'ui_page', judge: 'human_pairwise', name: 'Interface screens arena', metrics: ['elo', 'cost_usd', 'ms'], schema: { renderer: 'script', limit_ms: 20000, judges: ['human_pairwise', 'rubric'], entry: 'ui_page', payload: { html: 'string' } } },
+    { id: 'design.dataviz', room: 'design', entry: 'dataviz_page', judge: 'human_pairwise', name: 'Data visualisation aids', metrics: ['elo', 'cost_usd', 'ms', 'pass_rate'], schema: { renderer: 'script', limit_ms: 20000, judges: ['human_pairwise', 'rubric', 'automatic_grader'], entry: 'dataviz_page', payload: { html: 'string' } } },
+    { id: 'design.model3d', room: 'design', entry: 'gltf_model', judge: 'human_pairwise', name: '3D model arena', metrics: ['elo', 'cost_usd', 'ms'], schema: { renderer: 'script', limit_ms: 60000, judges: ['human_pairwise', 'automatic_grader'], entry: 'gltf_model', payload: { gltf_base64: 'string' } } },
+    { id: 'design.shader', room: 'design', entry: 'shader_glsl', judge: 'human_pairwise', name: 'Shader arena', metrics: ['elo', 'cost_usd', 'ms'], schema: { renderer: 'script', limit_ms: 20000, judges: ['human_pairwise', 'automatic_grader'], entry: 'shader_glsl', payload: { glsl: 'string' } } },
+    { id: 'design.interface', room: 'design', entry: 'component_set', judge: 'human_pairwise', name: 'Component systems arena', metrics: ['elo', 'cost_usd', 'ms'], schema: { renderer: 'script', limit_ms: 20000, judges: ['human_pairwise', 'rubric'], entry: 'component_set', payload: { html: 'string' } } },
 ]);
 
 const byId = new Map(KINDS.map((k) => [k.id, k]));
 
-module.exports = { KINDS, JUDGES, WINNERS, kindById: (id) => byId.get(id) || null };
+const SHOWCASE_KIND_IDS = Object.freeze(KINDS.filter((k) => k.schema && k.schema.renderer).map((k) => k.id));
+
+module.exports = { KINDS, JUDGES, WINNERS, SHOWCASE_KIND_IDS, kindById: (id) => byId.get(id) || null };

@@ -51,7 +51,7 @@ function createDiscoveryRoutes(ctx) {
         res.type('text/plain').set('Cache-Control', TEXT).send(seo.llmsTxt({
             name: SITE_NAME,
             summary: DESCRIPTION,
-            details: 'GET /api/v1/kinds lists the fifteen benchmark kinds. GET /api/v1/boards/:kind?type=elo|pareto|cost renders a board as JSON. GET /api/v1/datasets/:kind.jsonl is the open dataset without voter ids. POST /mcp is the Model Context Protocol endpoint.',
+            details: 'GET /api/v1/kinds lists the benchmark kinds. GET /api/v1/boards/:kind?type=elo|pareto|cost renders a board as JSON. GET /api/v1/datasets/:kind.jsonl is the open dataset without voter ids. POST /mcp is the Model Context Protocol endpoint.',
             sections: [
                 { title: 'Start here', links: [{ title: SITE_NAME, url: abs('/') }, { title: 'The API', url: abs('/docs') }] },
                 { title: 'Machine-readable', links: [{ title: 'Kinds (JSON)', url: abs('/api/v1/kinds') }, { title: 'Sitemap', url: abs('/sitemap.xml') }, { title: 'Release metadata (JSON)', url: abs('/release.json') }] },

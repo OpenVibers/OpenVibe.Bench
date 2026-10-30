@@ -2,7 +2,7 @@
 
 /**
  * Bench's own origin pages (the main session designs them later): a plain home that says what Bench is, lists the
- * fifteen kinds and links to boards and docs, and /docs for the API. Ids and classes start with `bm-`.
+ * every kind and links to boards and docs, and /docs for the API. Ids and classes start with `bm-`.
  */
 const { esc } = require('../render/html');
 
@@ -34,7 +34,7 @@ function docs() {
 <header class="bm-page-h"><p class="bm-kicker">Developers</p><h1>The Bench API</h1>
 <p class="bm-lede">JSON under <code>/api/v1</code>, with <code>application/problem+json</code> errors. A person is the <code>bench_at</code> session cookie or a Network user token as a Bearer; a service sends a client-credentials token with <code>bench.*</code> capabilities.</p></header>
 <section><h2>Read</h2><dl class="bm-eps">
-${ep('GET', '/api/v1/kinds', 'The fifteen benchmark kinds.')}
+${ep('GET', '/api/v1/kinds', 'The benchmark kinds.')}
 ${ep('GET', '/api/v1/kinds/:kindId', 'One kind and its entry schema and metrics.')}
 ${ep('GET', '/api/v1/tasks/:id', 'One task.')}
 ${ep('GET', '/api/v1/rounds/:id', 'One round with entries; entries stay blind until the caller has judged or started the round.')}

@@ -26,6 +26,9 @@ const { createSso } = require('./auth/sso');
 const { createPrincipal } = require('./http/principal');
 const { createApi } = require('./http/api');
 const { createPageRoutes } = require('./http/pages');
+const { createShowcaseRoutes, createShowcasePages } = require('./http/showcase');
+const { createRenderRoutes } = require('./http/render');
+const { seedShowcaseTasks } = require('./bench/seed-tasks');
 const { createServiceReadiness } = require('./observability');
 const { assetVersion, send } = require('./render/layout');
 const { raw } = require('./render/html');
@@ -63,6 +66,7 @@ async function createApp(opts = {}) {
     const publisher = createPublisher({ config, s, fetchImpl, log });
 
     await bench.seedKinds();
+    try { await seedShowcaseTasks(s, bench); } catch (err) { log.warn('[OpenVibe.Bench] showcase tasks not seeded:', (err && err.message) || err); }
 
     const accountData = accountDataLib.create({ db: s.db, log });
     const accountSend = opts.accountSend || (config.oauth.clientSecret
@@ -147,6 +151,7 @@ async function createApp(opts = {}) {
     // ── API and MCP ─────────────────────────────────────────
     app.use('/api/v1', rateLimit({ windowMs: 60_000, limit: Number(process.env.BENCH_API_RATE_LIMIT_PER_MIN) || 240, standardHeaders: true, legacyHeaders: false, handler: (req, res) => contracts.http.sendProblem(res, 429, 'rate_limited', { detail: 'too many requests from this address; retry shortly', ctx: req.ov }) }));
     app.use('/api/v1', createApi(ctx));
+    app.use('/api/v1/showcase', createShowcaseRoutes(ctx));
     app.use(mcpRouter(ctx));
     app.use('/api', (req, res) => contracts.http.sendProblem(res, 404, 'route.not_found', { detail: 'No such API route', ctx: req.ov }));
 
@@ -160,6 +165,8 @@ async function createApp(opts = {}) {
 
     // ── Pages ───────────────────────────────────────────────
     app.use(rateLimit({ windowMs: 60_000, limit: Number(process.env.BENCH_RATE_LIMIT_PER_MIN) || 300, standardHeaders: true, legacyHeaders: false }));
+    app.use('/render', createRenderRoutes(ctx));
+    app.use('/showcase', createShowcasePages(ctx));
     app.use(createPageRoutes(ctx));
     app.use((req, res) => send(res, 404, {
         viewer: req.viewer, config, path: req.originalUrl, title: 'Not found',

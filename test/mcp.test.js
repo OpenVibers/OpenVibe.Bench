@@ -55,10 +55,10 @@ const rpc = (method, params, id = 1) => ({ jsonrpc: '2.0', id, method, ...(param
         assert.strictEqual(r.json().error.message, 'Unknown tool');
     });
 
-    await check('bench.list_kinds lists the fifteen kinds', async () => {
+    await check('bench.list_kinds lists every kind Bench runs', async () => {
         const r = await t.get('/mcp', { json: rpc('tools/call', { name: 'bench.list_kinds', arguments: {} }, 8) });
         assert.strictEqual(r.json().result.isError, false);
-        assert.strictEqual(r.json().result.structuredContent.kinds.length, 15);
+        assert.strictEqual(r.json().result.structuredContent.kinds.length, 24);
     });
 
     await check('bench.get_board renders a board without a person', async () => {

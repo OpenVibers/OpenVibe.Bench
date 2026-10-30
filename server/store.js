@@ -36,7 +36,12 @@ function wireKind(row) {
     let metrics = row.metrics;
     if (typeof schema === 'string') { try { schema = JSON.parse(schema); } catch { schema = {}; } }
     if (typeof metrics === 'string') { try { metrics = JSON.parse(metrics); } catch { metrics = []; } }
-    return { id: row.id, room: row.room, entry: row.entry, judge: row.judge, name: row.name, schema, metrics: Array.isArray(metrics) ? metrics : [], created_at: iso(row.created_at) };
+    return {
+        id: row.id, room: row.room, entry: row.entry, judge: row.judge, name: row.name,
+        renderer: schema.renderer || null, limit_ms: schema.limit_ms == null ? null : num(schema.limit_ms),
+        judges: Array.isArray(schema.judges) ? schema.judges : null,
+        schema, metrics: Array.isArray(metrics) ? metrics : [], created_at: iso(row.created_at),
+    };
 }
 
 function wireTask(row) {

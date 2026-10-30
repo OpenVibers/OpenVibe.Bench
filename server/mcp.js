@@ -20,7 +20,7 @@ const PROTOCOL_VERSION = '2025-06-18';
 const SUPPORTED_VERSIONS = Object.freeze(new Set(['2025-06-18', '2025-03-26']));
 const BODY_LIMIT = '64kb';
 
-const INSTRUCTIONS = 'Bench runs one shared benchmark engine across every OpenVibe room. list_kinds shows the fifteen kinds; start_round queues a pinned round and returns its id; next_pair fetches a blind pair to judge; cast_judgement records a vote and reveals the two entries; get_board renders an elo, pareto or cost board; run_eval runs a private task suite.';
+const INSTRUCTIONS = 'Bench runs one shared benchmark engine across every OpenVibe room. list_kinds shows every kind Bench runs; start_round queues a pinned round and returns its id; next_pair fetches a blind pair to judge; cast_judgement records a vote and reveals the two entries; get_board renders an elo, pareto or cost board; run_eval runs a private task suite.';
 
 function toolsInput() {
     return {
@@ -73,7 +73,7 @@ function toolsInput() {
 }
 
 const TOOL_META = Object.freeze([
-    { name: 'bench.list_kinds', title: 'List Bench kinds', description: 'List the fifteen benchmark kinds Bench runs for every room.' },
+    { name: 'bench.list_kinds', title: 'List Bench kinds', description: 'List the benchmark kinds Bench runs for every room.' },
     { name: 'bench.start_round', title: 'Start a Bench round', description: 'Create a task and queue a pinned round for it.' },
     { name: 'bench.next_pair', title: 'Next blind pair', description: 'Fetch the next ready round this person has not judged, with the two entries shuffled and identities hidden.' },
     { name: 'bench.cast_judgement', title: 'Cast a judgement', description: 'Record a blind pairwise vote and reveal the two entries.' },
