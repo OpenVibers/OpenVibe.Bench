@@ -1,4 +1,5 @@
 'use strict';
+const renderLib = require('../server/bench/render');
 
 const assert = require('assert');
 const { boot, check, done } = require('./helpers/boot');
@@ -87,6 +88,39 @@ const HOSTILE = [
         assert.ok(w.text.includes('data-limit-ms="120000"'), 'the wrapper knows the kind clock');
         assert.ok(w.text.includes('id="stop"'), 'the wrapper has a stop button');
         assert.ok(!w.headers.get('set-cookie'), 'the wrapper sets no cookie');
+        // Its policy lets its own clock run and its child load (10-30: 'script-src self' blocked the clock, and the
+        // header had no frame-src, so default-src 'none' refused the child frame).
+        const wcsp = w.headers.get('content-security-policy') || '';
+        const nonce = (/script-src 'nonce-([^']+)'/.exec(wcsp) || [])[1];
+        assert.ok(nonce, 'the wrapper header names a nonce: ' + wcsp);
+        assert.ok(w.text.includes('<script nonce="' + nonce + '">'), 'the clock script carries the header\'s nonce');
+        assert.ok(wcsp.includes('frame-src ' + renderLib.RENDER_ORIGIN), 'the child frame may load from the render origin: ' + wcsp);
+        assert.ok(w.text.includes('src="' + renderLib.RENDER_ORIGIN + '/render/e/'), 'the child loads from the render origin');
+        assert.ok(!w.headers.get('x-frame-options'), 'no X-Frame-Options DENY: frame-ancestors decides');
+        assert.ok(wcsp.includes('frame-ancestors https://bench.openvibe.services'), 'the showcase page may frame it');
+    });
+
+    await check('built-in pages and whole pages: one nonce per script, the import map for three and its addons', async () => {
+        const glsl = renderLib.modelDocument({ id: 'games.shader' }, { glsl: 'void main(){gl_FragColor=vec4(1.0);}' }, { nonce: 'N1' });
+        assert.ok(!glsl.includes('__NONCE__'), 'the placeholder becomes the nonce');
+        assert.ok(!/nonce="[^"]*"\s+nonce=/.test(glsl), 'no tag carries two nonces');
+        assert.ok(/http-equiv="Content-Security-Policy" content="[^"]*nonce-N1/.test(glsl), 'the page\'s own CSP names the same nonce');
+        const own = renderLib.modelDocument({ id: 'games.three' }, { html: '<!doctype html><html><head><title>x</title></head><body><script type="module" nonce="guess">import * as THREE from "three";</script></body></html>' }, { nonce: 'N2' });
+        assert.ok(own.includes('"three/addons/":"' + renderLib.VENDOR.addons + '"'), 'a whole page gets the import map');
+        assert.ok(own.includes('<script nonce="N2" type="module">') && !own.includes('guess'), 'a guessed nonce is replaced by ours');
+    });
+
+    await check('the render origin vendors three 0.170.0 for opaque-origin frames', async () => {
+        const v = await t.get('/vendor/three.module.js');
+        assert.strictEqual(v.status, 200);
+        assert.ok(/javascript/.test(v.headers.get('content-type') || ''), v.headers.get('content-type'));
+        assert.strictEqual(v.headers.get('access-control-allow-origin'), '*', 'a module script from an opaque origin is a CORS request');
+        assert.strictEqual(v.headers.get('cross-origin-resource-policy'), 'cross-origin');
+        assert.ok(v.text.includes("REVISION = '170'"), 'three r170');
+        const a = await t.get('/vendor/three/addons/controls/OrbitControls.js');
+        assert.strictEqual(a.status, 200, 'an addon');
+        const bad = await t.get('/vendor/three/addons/../../package.json');
+        assert.notStrictEqual(bad.status, 200, 'nothing outside examples/jsm');
     });
 
     await check('an entry is capped at 200 KB', async () => {
@@ -113,7 +147,7 @@ const HOSTILE = [
         assert.strictEqual(pair.slots[0].slot, 'A');
         assert.strictEqual(pair.slots[1].slot, 'B');
         assert.strictEqual(pair.slots[0].model, undefined, 'no model before the vote');
-        assert.ok(pair.slots[0].wrapper_url.startsWith('/render/w/'));
+        assert.ok(pair.slots[0].wrapper_url.startsWith(renderLib.RENDER_ORIGIN + '/render/w/'), 'the wrapper is on the render origin: ' + pair.slots[0].wrapper_url);
     });
 
     await check('the compare page is blind, and the vote reveals', async () => {

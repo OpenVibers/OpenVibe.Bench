@@ -20,13 +20,20 @@ const { truncateBytes, MAX_BYTES } = require('./sanitize');
 const RENDER_ORIGIN = String(process.env.OV_RENDER_ORIGIN || 'https://bench-render.openvibe.services').replace(/\/+$/, '');
 /** The only origins a model output may load code, styles, images or fonts from. */
 const PINNED_ORIGINS = Object.freeze([RENDER_ORIGIN]);
-/** Version-pinned libraries the render origin vendors. A model imports these by absolute URL. */
+/** Version-pinned libraries the render origin vendors (three 0.170.0, server/http/vendor.js). A model imports these by
+ *  absolute URL, or by the import map's bare names ("three", "three/addons/…"). */
 const VENDOR = Object.freeze({
     three: RENDER_ORIGIN + '/vendor/three.module.js',
-    threeLegacy: RENDER_ORIGIN + '/vendor/three.min.js',
+    addons: RENDER_ORIGIN + '/vendor/three/addons/',
 });
+/** The pages that may frame the wrapper and the model documents. */
+const FRAME_ANCESTORS = 'https://bench.openvibe.services https://openvibe.report';
+/** The wrapper's own policy: its one inline script under a fresh nonce, its child frame only from the render origin. */
+function wrapperCsp(nonce) {
+    return "default-src 'none'; script-src 'nonce-" + nonce + "'; style-src 'unsafe-inline'; frame-src " + RENDER_ORIGIN
+        + "; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors " + FRAME_ANCESTORS;
+}
 /** The sandbox attributes for every model frame: scripts yes, everything else no. */
-const WRAPPER_CSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; frame-src " + RENDER_ORIGIN + "; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'";
 const SANDBOX = 'allow-scripts';
 /** The default wall-clock a kind may run before the wrapper stops it. */
 const DEFAULT_LIMIT_MS = 20000;
@@ -48,13 +55,16 @@ function cspFor(nonce) {
         "object-src 'none'",
         "form-action 'none'",
         "base-uri 'none'",
-        "frame-ancestors https://bench.openvibe.services https://openvibe.report",
+        "frame-ancestors " + FRAME_ANCESTORS,
     ].join('; ');
 }
 
-/** Give every script tag in the model output our nonce, so only our own script-src nonce runs it. */
+/** Give every script tag in the model output our nonce, so only our own script-src nonce runs it. A tag that already
+ *  names a nonce (the model guessing one, or our __NONCE__ placeholder) gets ours in its place: one nonce per tag. */
 function applyNonce(html, nonce) {
-    return String(html == null ? '' : html).replace(/<script\b/gi, '<script nonce="' + nonce + '"');
+    return String(html == null ? '' : html)
+        .replace(/(<script\b[^>]*?)\snonce\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '$1')
+        .replace(/<script\b/gi, '<script nonce="' + nonce + '"');
 }
 
 /** SVG-specific pass (spec 2.3): no script, no foreignObject, no external reference, no event handler, no @import. */
@@ -93,7 +103,7 @@ function head(nonce, extra) {
 
 /** The import map the wrapper injects: three.js is vendored on the render origin, never fetched from a CDN. */
 function importMap() {
-    return '<script type="importmap" nonce="__NONCE__">' + JSON.stringify({ imports: { three: VENDOR.three } }) + '</script>';
+    return '<script type="importmap" nonce="__NONCE__">' + JSON.stringify({ imports: { three: VENDOR.three, 'three/addons/': VENDOR.addons } }) + '</script>';
 }
 
 /** The model document for a script kind: the model's own HTML, under our nonce and our CSP. */
@@ -106,10 +116,16 @@ function modelDocument(kind, payload, opts) {
     else if (typeof p.gltf_base64 === 'string' && p.gltf_base64.trim()) body = gltfPage(p.gltf_base64);
     else body = '<p>Nothing was generated for this entry.</p>';
     body = truncateBytes(body, MAX_ENTRY_BYTES);
-    const doc = /<html\b/i.test(body)
-        ? body
+    // A whole page of the model's own gets the import map too (an addon imports the bare "three"), unless it has one.
+    const own = /<html\b/i.test(body);
+    const withMap = own && !/type\s*=\s*["']?importmap/i.test(body)
+        ? (/<head\b[^>]*>/i.test(body) ? body.replace(/<head\b[^>]*>/i, (m) => m + importMap()) : body.replace(/<html\b[^>]*>/i, (m) => m + '<head>' + importMap() + '</head>'))
+        : body;
+    const doc = own
+        ? withMap
         : '<!doctype html><html lang="en"><head>' + head(nonce, importMap()) + '</head><body>' + body + '</body></html>';
-    return truncateBytes(applyNonce(doc, nonce), MAX_ENTRY_BYTES + 2048);
+    // The built-in pages (glsl, gltf) write __NONCE__ in their CSP meta and tags; it becomes this response's nonce.
+    return truncateBytes(applyNonce(doc.split('__NONCE__').join(nonce), nonce), MAX_ENTRY_BYTES + 2048);
 }
 
 /** A minimal WebGL page: the model's fragment shader on a full-frame quad. */
@@ -167,9 +183,10 @@ function wrapperDocument(opts) {
     const kindId = (opts && opts.kindId) || '';
     const limitMs = (opts && opts.limitMs) || DEFAULT_LIMIT_MS;
     const title = (opts && opts.title) || 'Generated output';
+    const nonce = (opts && opts.nonce) || crypto.randomBytes(16).toString('base64');
     const secs = Math.max(1, Math.round(limitMs / 1000));
     return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
-        + '<meta http-equiv="Content-Security-Policy" content="' + WRAPPER_CSP + '">'
+        + '<meta http-equiv="Content-Security-Policy" content="' + esc(wrapperCsp(nonce)) + '">'
         + '<style>html,body{margin:0;height:100%;font:14px/1.4 system-ui,sans-serif;background:#0f1115;color:#e9edf2}'
         + '.bar{display:flex;gap:.5rem;align-items:center;justify-content:space-between;padding:.35rem .6rem;background:#171a21;border-bottom:1px solid #262b36}'
         + '.bar b{font-weight:600}.clock{font-variant-numeric:tabular-nums;color:#9fb0c8}'
@@ -179,9 +196,9 @@ function wrapperDocument(opts) {
         + '<body data-entry-id="' + esc(entryId) + '" data-kind-id="' + esc(kindId) + '" data-limit-ms="' + limitMs + '">'
         + '<div class="bar"><b>' + esc(title) + '</b><span><span class="clock" id="clock">' + secs + 's</span> '
         + '<button type="button" id="stop">Stop</button></span></div>'
-        + '<iframe id="frame" title="' + esc(title) + '" sandbox="' + SANDBOX + '" referrerpolicy="no-referrer" loading="lazy" src="/render/e/' + encodeURIComponent(entryId) + '"></iframe>'
+        + '<iframe id="frame" title="' + esc(title) + '" sandbox="' + SANDBOX + '" referrerpolicy="no-referrer" loading="lazy" src="' + esc(RENDER_ORIGIN + '/render/e/' + encodeURIComponent(entryId)) + '"></iframe>'
         + '<div class="stopped" id="stopped">The entry stopped after ' + secs + ' seconds.</div>'
-        + '<script>(function(){var frame=document.getElementById("frame");var clock=document.getElementById("clock");'
+        + '<script nonce="' + esc(nonce) + '">(function(){var frame=document.getElementById("frame");var clock=document.getElementById("clock");'
         + 'var stopped=document.getElementById("stopped");var left=' + secs + ';'
         + 'function stop(){frame.src="about:blank";frame.style.display="none";stopped.style.display="block";clock.textContent="0s";}'
         + 'document.getElementById("stop").addEventListener("click",stop);'
@@ -191,5 +208,5 @@ function wrapperDocument(opts) {
 
 module.exports = {
     RENDER_ORIGIN, PINNED_ORIGINS, VENDOR, SANDBOX, DEFAULT_LIMIT_MS, MAX_ENTRY_BYTES,
-    cspFor, applyNonce, sanitizeSvg, limitMsOf, modeOf, modelDocument, wrapperDocument,
+    FRAME_ANCESTORS, wrapperCsp, cspFor, applyNonce, sanitizeSvg, limitMsOf, modeOf, modelDocument, wrapperDocument,
 };

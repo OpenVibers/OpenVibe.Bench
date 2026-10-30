@@ -23,8 +23,8 @@ function slotsOf(entries, revealed, kind) {
         const base = {
             slot: i === 0 ? 'A' : 'B',
             entry_id: e.id,
-            render_url: '/render/e/' + encodeURIComponent(e.id),
-            wrapper_url: '/render/w/' + encodeURIComponent(e.id),
+            render_url: renderLib.RENDER_ORIGIN + '/render/e/' + encodeURIComponent(e.id),
+            wrapper_url: renderLib.RENDER_ORIGIN + '/render/w/' + encodeURIComponent(e.id),
             limit_ms: kind ? renderLib.limitMsOf(kind) : renderLib.DEFAULT_LIMIT_MS,
             error: e.error || null,
         };

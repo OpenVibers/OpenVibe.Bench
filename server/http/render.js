@@ -27,6 +27,7 @@ function createRenderRoutes(ctx) {
     /** No cookies on this origin, ever. */
     function bare(res) {
         res.removeHeader('Set-Cookie');
+        res.removeHeader('X-Frame-Options');   // helmet's DENY; frame-ancestors in each response's CSP names who may frame it
         res.set('Cache-Control', 'no-store');
         res.set('X-Content-Type-Options', 'nosniff');
         res.set('Referrer-Policy', 'no-referrer');
@@ -37,14 +38,16 @@ function createRenderRoutes(ctx) {
         const entry = await entryOf(req.params.entryId);
         if (!entry) return bare(res).status(404).type('text/plain').send('No such entry.');
         const kind = entry.kind;
+        const nonce = crypto.randomBytes(16).toString('base64');
         const doc = renderLib.wrapperDocument({
+            nonce,
             entryId: entry.id,
             kindId: kind ? kind.id : '',
             limitMs: renderLib.limitMsOf(kind),
             title: kind ? kind.name : 'Generated output',
         });
         return bare(res)
-            .set('Content-Security-Policy', renderLib.cspFor(crypto.randomBytes(16).toString('base64')).replace(/script-src [^;]*/, "script-src 'self'"))
+            .set('Content-Security-Policy', renderLib.wrapperCsp(nonce))
             .type('html')
             .send(doc);
     });

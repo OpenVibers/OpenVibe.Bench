@@ -102,7 +102,7 @@ async function createApp(opts = {}) {
                 fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com', 'https://cdnjs.cloudflare.com'],
                 imgSrc: ["'self'", 'data:', 'https://openvibe.network', 'https://openvibe.media'],
                 connectSrc: ["'self'", 'https://openvibe.network', 'https://cloudflareinsights.com', 'https://openvibe.events'],
-                frameSrc: ["'self'", 'https://openvibe.network'],
+                frameSrc: ["'self'", 'https://openvibe.network', require('./bench/render').RENDER_ORIGIN],
                 frameAncestors: ["'none'"],
                 objectSrc: ["'none'"],
                 baseUri: ["'self'"],
@@ -166,6 +166,7 @@ async function createApp(opts = {}) {
     // ── Pages ───────────────────────────────────────────────
     app.use(rateLimit({ windowMs: 60_000, limit: Number(process.env.BENCH_RATE_LIMIT_PER_MIN) || 300, standardHeaders: true, legacyHeaders: false }));
     app.use('/render', createRenderRoutes(ctx));
+    app.use('/vendor', require('./http/vendor').createVendorRoutes());
     app.use('/showcase', createShowcasePages(ctx));
     app.use(createPageRoutes(ctx));
     app.use((req, res) => send(res, 404, {
