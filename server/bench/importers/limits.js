@@ -126,8 +126,14 @@ function readZip(buffer) {
     return entries;
 }
 
-/** The bytes of one entry of a zip, inflated in memory. */
-function readZipEntry(buffer, entry) {
+/**
+ * The bytes of one entry of a zip, inflated in memory.
+ *
+ * The cap is the real one: the inflater is given the room that is left in the whole zip, so a part that lies
+ * about its size cannot fill the memory. A zip that says it holds a kilobyte and really holds sixty megabytes is
+ * cut off at the budget, not believed.
+ */
+function readZipEntry(buffer, entry, { maxOutput = MAX_DECOMPRESSED_BYTES, used = 0 } = {}) {
     const buf = buffer;
     const at = entry.localOffset;
     if (at + 30 > buf.length || buf.readUInt32LE(at) !== LOCAL) {
@@ -137,30 +143,50 @@ function readZipEntry(buffer, entry) {
     const extraLen = buf.readUInt16LE(at + 28);
     const start = at + 30 + nameLen + extraLen;
     const raw = buf.subarray(start, start + entry.compressed);
-    if (entry.method === 0) return Buffer.from(raw);
+    if (entry.method === 0) {
+        const out = Buffer.from(raw);
+        if (out.length > maxOutput) throw unpackedTooMuch(used + out.length);
+        return out;
+    }
     if (entry.method !== 8) throw new ImportError(422, 'bench.import_bad_zip', 'That zip uses a compression I do not know.');
     let out;
     try {
-        out = zlib.inflateRawSync(raw, { maxOutputLength: MAX_DECOMPRESSED_BYTES });
+        out = zlib.inflateRawSync(raw, { maxOutputLength: maxOutput });
     } catch (err) {
+        // The inflater stops at the budget: that is the cap working, not a broken file.
+        if (err && (err.code === 'ERR_BUFFER_TOO_LARGE' || /maxOutputLength/i.test(String(err.message)))) {
+            throw unpackedTooMuch(used + maxOutput);
+        }
         throw new ImportError(422, 'bench.import_bad_zip', 'That zip could not be unpacked.');
     }
-    if (out.length > MAX_DECOMPRESSED_BYTES) {
-        throw new ImportError(413, 'bench.import_unpacks_too_much', 'That zip unpacks to more than 100 MB.');
-    }
+    if (out.length > maxOutput) throw unpackedTooMuch(used + out.length);
     return out;
 }
 
-/** Every JSON part of a zip, biggest first: the results log of an .eval file is the one that matters. */
+/** The refusal, with the bytes that were really unpacked: the cap is on the memory, not on the claim. */
+function unpackedTooMuch(inflated) {
+    const err = new ImportError(413, 'bench.import_unpacks_too_much', 'That zip unpacks to more than 100 MB.');
+    err.inflated = Number(inflated) || 0;
+    return err;
+}
+
+/**
+ * Every JSON part of a zip, biggest first: the results log of an .eval file is the one that matters.
+ *
+ * The running total is of the bytes really inflated, and each part is only given the room that is left. When the
+ * room runs out the import is refused, so a zip of many parts cannot unpack to more than the cap in all.
+ */
 function jsonPartsOfZip(buffer) {
     const entries = readZip(buffer);
     const out = [];
+    let used = 0;
     for (const entry of entries) {
-        if (entry.uncompressed > MAX_DECOMPRESSED_BYTES) {
-            throw new ImportError(413, 'bench.import_unpacks_too_much', 'That zip unpacks to more than 100 MB.');
-        }
         if (!/\.json$/i.test(entry.name)) continue;
-        out.push({ name: entry.name, data: readZipEntry(buffer, entry) });
+        const budget = MAX_DECOMPRESSED_BYTES - used;
+        if (budget <= 0) throw unpackedTooMuch(used);
+        const data = readZipEntry(buffer, entry, { maxOutput: budget, used });
+        used += data.length;
+        out.push({ name: entry.name, data });
     }
     if (!out.length) throw new ImportError(422, 'bench.import_no_json', 'That zip holds no JSON file I can read.');
     out.sort((a, b) => b.data.length - a.data.length);

@@ -55,7 +55,9 @@ function previewPage({ imp, benchmark = null, error = null } = {}) {
 ${error ? html`<div class="br-note is-bad" role="alert">${error}</div>` : ''}
 <ul class="br-plain">${list}</ul>
 <dl class="br-env"><div><dt>File</dt><dd>${imp.filename}</dd></div><div><dt>Tool</dt><dd>${imp.tool} ${imp.tool_version}</dd></div><div><dt>Suite</dt><dd>${suite || 'none named'}</dd></div><div><dt>Date in the file</dt><dd>${fmtDate(summary.date) || 'not stated'}</dd></div></dl>
-${suite ? html`<p class="br-fine">Bench knows this suite: the runs join its benchmark. Otherwise this becomes a private benchmark of your own, which you can share later.</p>` : html`<p class="br-fine">This becomes a private benchmark of your own, which you can share later.</p>`}
+${suite
+        ? html`<p class="br-fine">Bench knows this suite: the runs join its benchmark.</p>`
+        : html`<p class="br-fine">This becomes a private benchmark of your own, which you can share later.</p>`}
 <form method="post" action="/imports/${encodeURIComponent(imp.id)}/confirm" class="bm-form">
     <p><button class="bm-btn" type="submit">Import these runs</button></p>
 </form>

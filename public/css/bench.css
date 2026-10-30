@@ -108,6 +108,9 @@ html, body { margin: 0; background: var(--bg-primary, #0a0f1c); color: var(--tex
 .br-prov.is-verified { background: color-mix(in srgb, var(--success, #22c55e) 15%, transparent); color: var(--success, #22c55e); }
 .br-prov.is-verified::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .br-prov.is-submitted { border: 1px solid var(--border, #1f2d47); color: var(--text-muted, #7386a3); }
+/* A source url is long: it breaks inside the line, so the page never scrolls sideways */
+.br-source, .br-source a { overflow-wrap: anywhere; word-break: break-word; }
+
 /* Imported (someone's own file) and mirrored (a published result): both are never verified */
 .br-prov.is-imported { border: 1px dashed var(--warning, #f59e0b); color: var(--warning, #f59e0b); }
 .br-prov.is-mirrored { border: 1px dotted var(--info, #38bdf8); color: var(--info, #38bdf8); }

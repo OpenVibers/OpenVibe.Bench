@@ -66,6 +66,62 @@ function zipOf(parts) {
     return Buffer.concat([...chunks, centralBuffer, end]);
 }
 
+
+/**
+ * A zip that lies: each part really inflates to 'size' bytes, but the directory says it is a kilobyte.
+ * This is the bomb the cap has to catch: the memory is bounded by what is really unpacked, not by the claim.
+ */
+function bombZip(parts) {
+    const zlib = require('zlib');
+    const chunks = [];
+    const central = [];
+    let offset = 0;
+    for (const part of parts) {
+        const name = Buffer.from(part.name, 'utf8');
+        const raw = Buffer.alloc(part.size, 0x61);
+        const deflated = zlib.deflateRawSync(raw, { level: 9 });
+        const local = Buffer.alloc(30);
+        local.writeUInt32LE(0x04034b50, 0);
+        local.writeUInt16LE(20, 4);
+        local.writeUInt16LE(0, 6);
+        local.writeUInt16LE(8, 8);
+        local.writeUInt32LE(0, 10);
+        local.writeUInt32LE(0, 14);
+        local.writeUInt32LE(deflated.length, 18);
+        local.writeUInt32LE(part.declared, 22);
+        local.writeUInt16LE(name.length, 26);
+        local.writeUInt16LE(0, 28);
+        chunks.push(local, name, deflated);
+        const entry = Buffer.alloc(46);
+        entry.writeUInt32LE(0x02014b50, 0);
+        entry.writeUInt16LE(20, 4);
+        entry.writeUInt16LE(20, 6);
+        entry.writeUInt16LE(0, 8);
+        entry.writeUInt16LE(8, 10);
+        entry.writeUInt32LE(0, 12);
+        entry.writeUInt32LE(0, 16);
+        entry.writeUInt32LE(deflated.length, 20);
+        entry.writeUInt32LE(part.declared, 24);
+        entry.writeUInt16LE(name.length, 28);
+        entry.writeUInt16LE(0, 30);
+        entry.writeUInt16LE(0, 32);
+        entry.writeUInt16LE(0, 34);
+        entry.writeUInt16LE(0, 36);
+        entry.writeUInt32LE(0, 38);
+        entry.writeUInt32LE(offset, 42);
+        central.push(entry, name);
+        offset += local.length + name.length + deflated.length;
+    }
+    const centralBuffer = Buffer.concat(central);
+    const end = Buffer.alloc(22);
+    end.writeUInt32LE(0x06054b50, 0);
+    end.writeUInt16LE(parts.length, 8);
+    end.writeUInt16LE(parts.length, 10);
+    end.writeUInt32LE(centralBuffer.length, 12);
+    end.writeUInt32LE(offset, 16);
+    return Buffer.concat([...chunks, centralBuffer, end]);
+}
+
 /** A multipart body with one file part, the way a browser sends it. */
 function multipart(filename, bytes) {
     const boundary = '----b12fixture';
@@ -139,6 +195,38 @@ function multipart(filename, bytes) {
         const centralAt = zip.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
         zip.writeUInt32LE(200 * 1024 * 1024, centralAt + 24);
         assert.throws(() => limits.readZip(zip), /100 MB|unpacks/i);
+    });
+
+
+    await check('a zip that lies about its size is refused at the real cap, and the memory stays bounded', () => {
+        const rssBefore = process.memoryUsage().rss;
+        const zip = bombZip([
+            { name: 'logs/one.json', size: 60 * 1024 * 1024, declared: 1024 },
+            { name: 'logs/two.json', size: 60 * 1024 * 1024, declared: 1024 },
+        ]);
+        let caught = null;
+        try {
+            limits.jsonPartsOfZip(zip);
+        } catch (err) {
+            caught = err;
+        }
+        assert.ok(caught, 'the bomb is refused');
+        assert.strictEqual(caught.code, 'bench.import_unpacks_too_much');
+        assert.strictEqual(caught.status, 413);
+        assert.ok(caught.inflated <= limits.MAX_DECOMPRESSED_BYTES,
+            'the bytes really unpacked stay under the cap: ' + caught.inflated);
+        const grew = process.memoryUsage().rss - rssBefore;
+        assert.ok(grew < 250 * 1024 * 1024, 'the memory stayed bounded: ' + Math.round(grew / 1048576) + ' MB');
+    });
+
+    await check('the operator token is compared in constant time', () => {
+        const { tokenMatches } = require('../server/http/mirror');
+        assert.ok(tokenMatches('secret', 'secret'));
+        assert.ok(!tokenMatches('secrat', 'secret'));
+        assert.ok(!tokenMatches('secret', 'secre'));
+        assert.ok(!tokenMatches('', 'secret'));
+        assert.ok(!tokenMatches('secret', ''));
+        assert.ok(!tokenMatches(null, 'secret'));
     });
 
     await check('a JSON that nests too deeply is refused', () => {

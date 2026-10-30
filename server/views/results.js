@@ -82,10 +82,12 @@ function sourceLine(run) {
         const tool = String(source.tool || 'a tool');
         const version = String(source.tool_version || '');
         const file = source.import_id ? html` · <a href="/imports/${encodeURIComponent(source.import_id)}/file">the original file</a>` : '';
-        return html`<p class="br-fine">Imported from ${tool}${version ? ' ' + version : ''}${source.date ? ' · the file says ' + fmtDate(source.date) : ''}. The original file is the owner's, and stays private until they share it${file}.</p>`;
+        const said = source.date ? html` · the file says ${fmtDate(source.date)}` : '';
+        return html`<p class="br-fine">Imported from ${tool}${version ? ' ' + version : ''}${said}. The original file is the owner's, and stays private until they share it${file}.</p>`;
     }
     if (source.kind === 'mirror') {
-        return html`<p class="br-fine">Mirrored from <a href="${String(source.source_url || '')}" rel="nofollow noopener">${String(source.source_url || 'the source')}</a>${source.licence ? ' · ' + source.licence : ''}${source.read_at ? ' · read ' + fmtDate(source.read_at) : ''}. A published result, never re-run here.</p>`;
+        const read = source.read_at ? html` · read ${fmtDate(source.read_at)}` : '';
+        return html`<p class="br-fine br-source">Mirrored from <a href="${String(source.source_url || '')}" rel="nofollow noopener">${String(source.source_url || 'the source')}</a>${source.licence ? ' · ' + source.licence : ''}${read}. A published result, never re-run here.</p>`;
     }
     return '';
 }
