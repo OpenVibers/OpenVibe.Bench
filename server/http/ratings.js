@@ -21,11 +21,12 @@ const { board, boardView } = require('../rating/board');
 const num = (v, d = 0) => (v == null || Number.isNaN(Number(v)) ? d : Number(v));
 
 /** The rounded score and its interval, as text. */
-function scoreText(cell) {
+/** The score and its interval as HTML: the interval in its own span, so a phone can set it on a line of its own. */
+function scoreHtml(cell) {
     if (!cell) return '—';
     const lo = cell.ci_lower == null ? null : Math.round(cell.ci_lower);
     const hi = cell.ci_upper == null ? null : Math.round(cell.ci_upper);
-    return Math.round(cell.rating) + (lo == null ? '' : ' (' + lo + '–' + hi + ')');
+    return esc(Math.round(cell.rating)) + (lo == null ? '' : ' <span class="rt-ci">(' + esc(lo) + '–' + esc(hi) + ')</span>');
 }
 
 /**
@@ -87,9 +88,9 @@ function rows(view) {
     const body = models.map((m) => '<tr data-model="' + esc(m.model) + '">'
         + '<td class="rt-col-band"><span class="rt-band">' + esc(m.controlled.band || m.raw.band || '') + '</span></td>'
         + '<td class="rt-col-model"><span class="rt-model">' + esc(m.model) + '</span></td>'
-        + '<td class="rt-col-controlled"><span class="rt-score">' + esc(scoreText(m.controlled)) + '</span>'
+        + '<td class="rt-col-controlled"><span class="rt-score">' + scoreHtml(m.controlled) + '</span>'
         + bar(m.controlled, scale) + '</td>'
-        + '<td class="rt-col-raw"><span class="rt-score rt-score-muted">' + esc(scoreText(m.raw)) + '</span>'
+        + '<td class="rt-col-raw"><span class="rt-score rt-score-muted">' + scoreHtml(m.raw) + '</span>'
         + bar(m.raw, scale) + '</td>'
         + '<td class="rt-col-votes rt-num">' + esc(m.votes) + '</td>'
         + '</tr>').join('');
