@@ -16,6 +16,9 @@ const BENCH_CAPABILITIES = Object.freeze([
     'bench.board.read',
     'bench.dataset.read',
     'bench.eval.manage',
+    'bench.benchmark.write',
+    'bench.run.publish',
+    'bench.run.read',
 ]);
 
 const BENCH_EVENTS = Object.freeze([

@@ -25,10 +25,13 @@ const { createKeyStore } = require('./auth/keys');
 const { createSso } = require('./auth/sso');
 const { createPrincipal } = require('./http/principal');
 const { createApi } = require('./http/api');
+const { createRegistryApi } = require('./http/registry');
 const { createPageRoutes } = require('./http/pages');
 const { createShowcaseRoutes, createShowcasePages } = require('./http/showcase');
 const { createRenderRoutes } = require('./http/render');
 const { seedShowcaseTasks } = require('./bench/seed-tasks');
+const { createRegistry } = require('./bench/registry');
+const { seedBenchmarks } = require('./bench/seed-benchmarks');
 const { createServiceReadiness } = require('./observability');
 const { assetVersion, send } = require('./render/layout');
 const { raw } = require('./render/html');
@@ -61,12 +64,14 @@ async function createApp(opts = {}) {
     const principal = createPrincipal({ config, keys });
 
     const bench = opts.bench || createStore(s, { config, log, random: opts.random });
+    const registry = opts.registry || createRegistry(s, { log });
     const ai = opts.benchAi || createBenchAi({ config, fetchImpl, log });
     const jobs = createBenchJobs({ s, bench, ai, config, log });
     const publisher = createPublisher({ config, s, fetchImpl, log });
 
     await bench.seedKinds();
     try { await seedShowcaseTasks(s, bench); } catch (err) { log.warn('[OpenVibe.Bench] showcase tasks not seeded:', (err && err.message) || err); }
+    try { await seedBenchmarks(s, registry); } catch (err) { log.warn('[OpenVibe.Bench] showcase benchmarks not seeded:', (err && err.message) || err); }
 
     const accountData = accountDataLib.create({ db: s.db, log });
     const accountSend = opts.accountSend || (config.oauth.clientSecret
@@ -74,7 +79,7 @@ async function createApp(opts = {}) {
         : async () => { throw new Error('OV_OAUTH_CLIENT_SECRET is not set: Bench cannot answer account events'); });
 
     const ctx = {
-        config, s, keys, sso, principal, bench, ai, jobs, publisher, accountData, accountSend, log,
+        config, s, keys, sso, principal, bench, registry, ai, jobs, publisher, accountData, accountSend, log,
         random: opts.random || Math.random,
     };
 
@@ -151,6 +156,7 @@ async function createApp(opts = {}) {
     // ── API and MCP ─────────────────────────────────────────
     app.use('/api/v1', rateLimit({ windowMs: 60_000, limit: Number(process.env.BENCH_API_RATE_LIMIT_PER_MIN) || 240, standardHeaders: true, legacyHeaders: false, handler: (req, res) => contracts.http.sendProblem(res, 429, 'rate_limited', { detail: 'too many requests from this address; retry shortly', ctx: req.ov }) }));
     app.use('/api/v1', createApi(ctx));
+    app.use('/api/v1', createRegistryApi(ctx));
     app.use('/api/v1/showcase', createShowcaseRoutes(ctx));
     app.use(mcpRouter(ctx));
     app.use('/api', (req, res) => contracts.http.sendProblem(res, 404, 'route.not_found', { detail: 'No such API route', ctx: req.ov }));
