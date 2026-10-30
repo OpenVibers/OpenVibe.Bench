@@ -4,7 +4,8 @@
  * Account export and deletion → Bench (ADR-033; openvibe-sdk/account-data). What Bench holds about a person:
  *
  *   theirs, and gone        the tasks and rounds they started, the private evals they own, the runs they
- *                            submitted, the pairs they have seen and the benchmarks they watch
+ *                            submitted, a private benchmark with its prompts and every run on it, the pairs they
+ *                            have seen and the benchmarks they watch
  *   theirs, and kept        a judgement they cast stays (it sits under somebody else's round, so the round and
  *                            the ratings keep their place) and loses the person; a benchmark other people ran
  *                            stays as a tombstone, so their runs keep theirs
@@ -12,8 +13,10 @@
  *                            person), the entries (a model's output) and the receipts of the requests themselves
  *
  * A benchmark and its frozen versions are the person's, but other people's runs hang under them, so what happens
- * to them depends on what else is there: a benchmark nobody else ran goes with its versions, one others ran stays
- * as a tombstone. extraErase decides that, and GUARDED names the tables the guard needs to know about.
+ * to them depends on what else is there: a private benchmark (a person's own prompts) goes with its versions and
+ * every run on it, wherever it was shared; a public or unlisted benchmark nobody else ran goes too; one others ran
+ * stays as a tombstone, so their runs keep their place. extraErase decides that, and GUARDED names the tables the
+ * guard needs to know about.
  */
 const { createAccountData, TOPICS } = require('openvibe-sdk/account-data');
 
@@ -38,7 +41,7 @@ const TABLES = [
 // under them. extraErase decides; the guard needs the names.
 const GUARDED = ['bench_benchmarks', 'bench_benchmark_versions'];
 
-/** The benchmarks of the person: what they own and what they wrote, with their versions. */
+/** The benchmarks of the person: what they own and what they wrote, with their versions and their private runs. */
 async function extraExport(db, subject) {
     const files = [];
     const benchmarks = await db.many(`SELECT id, owner, title, description, kind, tags, visibility, parent, latest_version, draft, created_by, created_at, updated_at
@@ -47,21 +50,42 @@ async function extraExport(db, subject) {
     const versions = await db.many(`SELECT benchmark_id, version, definition, hash, created_by, created_at FROM bench_benchmark_versions
         WHERE created_by = $1 OR benchmark_id IN (SELECT id FROM bench_benchmarks WHERE owner = $1) ORDER BY created_at DESC LIMIT 5000`, [subject]);
     if (versions.length) files.push({ name: 'benchmark_versions.json', content: versions });
+    // A run on the person's own prompt benchmark is part of their data even when a service executed and published
+    // it, and even if the set was shared.
+    const runs = await db.many(`SELECT id, benchmark_id, benchmark_version, model, route, provider, harness, settings, hardware,
+            score, cost_usd, ms, tokens, provenance, session, created_at
+        FROM bench_runs WHERE benchmark_id IN (
+            SELECT id FROM bench_benchmarks WHERE owner = $1
+             AND (visibility = 'private' OR tags @> '["your-prompts"]'::jsonb))
+        ORDER BY created_at DESC LIMIT 5000`, [subject]);
+    if (runs.length) files.push({ name: 'benchmark_runs.json', content: runs });
     return files;
 }
 
 async function extraErase(t, subjects, counts) {
-    // The benchmarks the person owns. One nobody else ran goes with its versions; one others ran stays as a
-    // tombstone, so their runs keep their place.
-    const ids = (await t.many('SELECT id FROM bench_benchmarks WHERE owner = ANY($1::text[])', [subjects])).map((r) => r.id);
+    // A private benchmark, or one made from the person's own pasted prompts (tagged your-prompts), is nothing but
+    // their text: it goes with its versions and every run on it, wherever it was shared. A public or unlisted
+    // benchmark another person ran stays as a tombstone, so their runs keep their place.
+    const owned = await t.many('SELECT id, visibility, tags FROM bench_benchmarks WHERE owner = ANY($1::text[])', [subjects]);
+    const tagsOf = (row) => {
+        let tags = row.tags;
+        if (typeof tags === 'string') { try { tags = JSON.parse(tags); } catch { tags = []; } }
+        return Array.isArray(tags) ? tags : [];
+    };
+    const deleteIds = owned.filter((r) => r.visibility === 'private' || tagsOf(r).includes('your-prompts')).map((r) => r.id);
+    if (deleteIds.length) {
+        counts.add(counts.erased, 'bench_runs', await t.exec('DELETE FROM bench_runs WHERE benchmark_id = ANY($1::text[])', [deleteIds]));
+        counts.add(counts.erased, 'bench_benchmarks', await t.exec('DELETE FROM bench_benchmarks WHERE id = ANY($1::text[])', [deleteIds]));
+    }
     const kept = [];
-    for (const id of ids) {
-        const runs = Number(await t.value('SELECT count(*)::int FROM bench_runs WHERE benchmark_id = $1', [id])) || 0;
-        if (runs) { kept.push(id); continue; }
-        counts.add(counts.erased, 'bench_benchmarks', await t.exec('DELETE FROM bench_benchmarks WHERE id = $1', [id]));
+    for (const row of owned) {
+        if (deleteIds.includes(row.id)) continue;
+        const runs = Number(await t.value('SELECT count(*)::int FROM bench_runs WHERE benchmark_id = $1', [row.id])) || 0;
+        if (runs) { kept.push(row.id); continue; }
+        counts.add(counts.erased, 'bench_benchmarks', await t.exec('DELETE FROM bench_benchmarks WHERE id = $1', [row.id]));
     }
     if (kept.length) {
-        counts.add(counts.retained, 'tombstones', await t.exec('UPDATE bench_benchmarks SET owner = $2, created_by = $2 WHERE id = ANY($1::text[])', [kept, TOMBSTONE]));
+        counts.add(counts.retained, 'tombstones', await t.exec('UPDATE bench_benchmarks SET owner = $2, created_by = $2, share_token_hash = NULL WHERE id = ANY($1::text[])', [kept, TOMBSTONE]));
     }
     // The benchmarks of somebody else that the person wrote: the definition stays, the person leaves it.
     counts.add(counts.retained, 'tombstones', await t.exec('UPDATE bench_benchmarks SET created_by = $2 WHERE created_by = ANY($1::text[])', [subjects, TOMBSTONE]));
@@ -76,7 +100,7 @@ function create({ db, log = console } = {}) {
         tables: TABLES,
         extraExport,
         extraErase,
-        note: 'Bench exports your tasks, rounds, judgements, private evals, runs, watched benchmarks and the pairs you have seen; the public dataset is anonymous and a rating never names a person.',
+        note: 'Bench exports your tasks, rounds, judgements, private evals, benchmarks and their prompts, the runs on your private benchmarks, watched benchmarks and the pairs you have seen; the public dataset is anonymous and a rating never names a person.',
         log,
     });
 }

@@ -28,6 +28,8 @@ const ulid = (prefix, tail = 'AAA') => `${prefix}_01JZ${'0'.repeat(19)}${tail}`;
     let judgementId;
     let sharedBenchmark;
     let lonelyBenchmark;
+    let privateBenchmark;
+    let sharedPromptBenchmark;
 
     const signedEvent = (event) => {
         const raw = JSON.stringify({ event });
@@ -73,6 +75,22 @@ const ulid = (prefix, tail = 'AAA') => `${prefix}_01JZ${'0'.repeat(19)}${tail}`;
             await db.exec(`INSERT INTO bench_benchmark_versions (benchmark_id, version, definition, hash, created_by, created_at)
                 VALUES ($1, 1, '{"kind":"design.page"}', $2, $3, now())`, [id, 'a'.repeat(64), owner]);
         }
+        // Her own prompts: a private benchmark with a service-run on it. Both go with her.
+        privateBenchmark = ulid('bmk', 'AAC');
+        await db.exec(`INSERT INTO bench_benchmarks (id, owner, title, kind, visibility, share_token_hash, created_by, created_at, updated_at)
+            VALUES ($1, $2, 'Private prompts', 'text.answer', 'private', $3, $2, now(), now())`, [privateBenchmark, alice.subject, 'b'.repeat(64)]);
+        await db.exec(`INSERT INTO bench_benchmark_versions (benchmark_id, version, definition, hash, created_by, created_at)
+            VALUES ($1, 1, $2::jsonb, $3, $4, now())`, [privateBenchmark, JSON.stringify({ kind: 'text.answer', tasks: [{ id: 't1', prompt: 'A very private prompt ZEBRA', holdout: false }] }), 'c'.repeat(64), alice.subject]);
+        await db.exec(`INSERT INTO bench_runs (id, benchmark_id, benchmark_version, model, provider, provenance, created_by, created_at)
+            VALUES ($1, $2, 1, 'model-private', 'acme', 'verified', 'svc:private-exec', now())`, [ulid('brn', 'AAC'), privateBenchmark]);
+        // A prompt benchmark she shared: it still goes with her, because the prompts are hers.
+        sharedPromptBenchmark = ulid('bmk', 'AAD');
+        await db.exec(`INSERT INTO bench_benchmarks (id, owner, title, kind, visibility, tags, share_token_hash, created_by, created_at, updated_at)
+            VALUES ($1, $2, 'Shared prompts', 'text.answer', 'unlisted', '["your-prompts"]'::jsonb, $3, $2, now(), now())`, [sharedPromptBenchmark, alice.subject, 'd'.repeat(64)]);
+        await db.exec(`INSERT INTO bench_benchmark_versions (benchmark_id, version, definition, hash, created_by, created_at)
+            VALUES ($1, 1, $2::jsonb, $3, $4, now())`, [sharedPromptBenchmark, JSON.stringify({ kind: 'text.answer', tasks: [{ id: 't1', prompt: 'A shared private prompt ZEBRA', holdout: false }] }), 'e'.repeat(64), alice.subject]);
+        await db.exec(`INSERT INTO bench_runs (id, benchmark_id, benchmark_version, model, provider, provenance, created_by, created_at)
+            VALUES ($1, $2, 1, 'model-shared', 'acme', 'verified', $3, now())`, [ulid('brn', 'AAD'), sharedPromptBenchmark, carol.subject]);
         // Her run on the benchmark, and Carol's run on the same one.
         await db.exec(`INSERT INTO bench_runs (id, benchmark_id, benchmark_version, model, provider, provenance, created_by, created_at)
             VALUES ($1, $2, 1, 'model-a', 'openai', 'submitted', $3, now())`, [ulid('brn', 'AAA'), sharedBenchmark, alice.subject]);
@@ -101,9 +119,15 @@ const ulid = (prefix, tail = 'AAA') => `${prefix}_01JZ${'0'.repeat(19)}${tail}`;
         assert.ok(part.body.files.some((f) => f.name === 'bench_runs.json' && f.content.length === 1));
         assert.ok(part.body.files.some((f) => f.name === 'bench_battle_seen.json' && f.content.length === 1));
         const benchmarks = part.body.files.find((f) => f.name === 'benchmarks.json');
-        assert.ok(benchmarks && benchmarks.content.length === 2, 'her benchmarks are in the part');
+        assert.ok(benchmarks && benchmarks.content.length === 4, 'her benchmarks are in the part');
         const versions = part.body.files.find((f) => f.name === 'benchmark_versions.json');
-        assert.ok(versions && versions.content.length === 2, 'the versions of her benchmarks are in the part');
+        assert.ok(versions && versions.content.length === 4, 'the versions of her benchmarks are in the part');
+        assert.ok(JSON.stringify(versions).includes('A very private prompt ZEBRA'), 'her private prompts are in her export');
+        assert.ok(JSON.stringify(versions).includes('A shared private prompt ZEBRA'), 'her shared prompts are in her export');
+        const privateRuns = part.body.files.find((f) => f.name === 'benchmark_runs.json');
+        assert.ok(privateRuns && privateRuns.content.length === 2, 'the runs on her prompt benchmarks are in her export');
+        assert.ok(privateRuns.content.some((r) => r.model === 'model-private'));
+        assert.ok(privateRuns.content.some((r) => r.model === 'model-shared'));
         assert.ok(!JSON.stringify(part.body).includes(carol.subject), 'nobody else\'s rows');
     });
 
@@ -117,8 +141,8 @@ const ulid = (prefix, tail = 'AAA') => `${prefix}_01JZ${'0'.repeat(19)}${tail}`;
         assert.strictEqual(confirm.body.subject, alice.subject);
         assert.strictEqual(confirm.body.erased.bench_tasks, 1);
         assert.strictEqual(confirm.body.erased.bench_rounds, 1);
-        assert.strictEqual(confirm.body.erased.bench_runs, 1, 'her run is gone');
-        assert.strictEqual(confirm.body.erased.bench_benchmarks, 1, 'the benchmark nobody else ran is gone');
+        assert.strictEqual(confirm.body.erased.bench_runs, 3, 'her run and the runs on her prompt benchmarks are gone');
+        assert.strictEqual(confirm.body.erased.bench_benchmarks, 3, 'the benchmark nobody else ran and both prompt benchmarks are gone');
         assert.strictEqual(confirm.body.erased.bench_battle_seen, 1, 'the pairs she had seen are gone');
         // Three rows stay without her: her judgement, the benchmark other people ran and its frozen version.
         assert.strictEqual(confirm.body.retained.tombstones, 3, 'her judgement, the benchmark others ran and its version stay');
@@ -135,6 +159,12 @@ const ulid = (prefix, tail = 'AAA') => `${prefix}_01JZ${'0'.repeat(19)}${tail}`;
         assert.strictEqual(kept.created_by, 'deleted');
         assert.strictEqual(Number(await db.value('SELECT count(*)::int FROM bench_runs WHERE benchmark_id = $1', [sharedBenchmark])), 1, 'Carol\'s run is still there');
         assert.strictEqual(Number(await db.value('SELECT count(*)::int FROM bench_benchmarks WHERE id = $1', [lonelyBenchmark])), 0, 'the benchmark nobody ran is gone');
+        assert.strictEqual(Number(await db.value('SELECT count(*)::int FROM bench_benchmarks WHERE id = $1', [privateBenchmark])), 0, 'the private benchmark is gone');
+        assert.strictEqual(Number(await db.value('SELECT count(*)::int FROM bench_benchmark_versions WHERE benchmark_id = $1', [privateBenchmark])), 0, 'its prompts go with it');
+        assert.strictEqual(Number(await db.value('SELECT count(*)::int FROM bench_runs WHERE benchmark_id = $1', [privateBenchmark])), 0, 'the run on it is gone too');
+        assert.strictEqual(Number(await db.value('SELECT count(*)::int FROM bench_benchmarks WHERE id = $1', [sharedPromptBenchmark])), 0, 'a shared prompt benchmark goes too');
+        assert.strictEqual(Number(await db.value('SELECT count(*)::int FROM bench_benchmark_versions WHERE benchmark_id = $1', [sharedPromptBenchmark])), 0, 'its shared prompts go with it');
+        assert.strictEqual(Number(await db.value('SELECT count(*)::int FROM bench_runs WHERE benchmark_id = $1', [sharedPromptBenchmark])), 0, 'its run goes too');
         if (await db.value("SELECT to_regclass('bench_watches') IS NOT NULL")) {
             assert.strictEqual(Number(await db.value('SELECT count(*)::int FROM bench_watches WHERE subject = $1', [alice.subject])), 0, 'her watch is gone');
         }

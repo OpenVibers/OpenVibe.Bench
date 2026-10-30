@@ -420,3 +420,76 @@ html, body { margin: 0; background: var(--bg-primary, #0a0f1c); color: var(--tex
 .br-usethis-row { display: grid; gap: 6px; min-width: 0; }
 .br-usethis-row textarea { width: 100%; min-height: 44px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-secondary); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .8rem; line-height: 1.45; resize: vertical; }
 .br-follow { margin: 0; }
+
+/* ---- Your own prompts (B11): the paste form, the share box and the two leaderboards ---- */
+.br-new-form textarea, .br-new-form .br-field textarea {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-input, var(--bg-primary));
+  color: var(--text-primary);
+  font: inherit;
+  line-height: 1.5;
+  resize: vertical;
+}
+.br-new-form textarea:focus-visible { outline: 2px solid var(--room-accent); outline-offset: 1px; }
+.br-new-form .br-prompts { min-height: 15rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .9rem; }
+.br-new-form .br-paste { min-width: 0; }
+.br-new-form .br-field { min-width: 0; }
+.br-vis { text-transform: lowercase; }
+.br-mine { margin-top: clamp(24px, 4vw, 36px); }
+.br-mine .bm-head-row, .br-share .bm-head-row { flex-wrap: wrap; }
+.br-mine-hint { margin: 14px 0 0; }
+.br-private { border-color: color-mix(in srgb, var(--room-accent) 40%, transparent); }
+.br-share { padding: 16px; border: 1px solid var(--border); border-radius: 18px; background: var(--bg-card); }
+.br-share-form { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 8px; }
+.br-share-now { display: grid; gap: 10px; }
+.br-share-now p { margin: 0; }
+.br-share-link { width: 100%; min-width: 0; min-height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-input, var(--bg-primary)); color: var(--text-primary); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .82rem; }
+.br-duo { display: grid; gap: 18px; grid-template-columns: 1fr; align-items: start; }
+.br-duo-pane { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 18px; background: var(--bg-card); }
+.br-duo-pane .br-table-wrap { background: transparent; }
+.br-duo-pane .br-chart { padding: 10px; }
+.br-duo-pane .bm-empty { background: transparent; }
+.br-prompt-table .rt-col-model { width: auto; }
+.br-spread { display: block; margin-top: 4px; white-space: nowrap; }
+.br-prompt-table .rt-col-raw { width: 9em; }
+.br-prompt-table .rt-col-band { width: 6.5em; }
+@media (min-width: 900px) {
+  .br-duo { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}
+@media (max-width: 560px) {
+  /* The shared ratings fold: score and cost/solved on the second line, as a band + model + score + cost + runs. */
+  .br-prompt-table.rt-table tr { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 3.2em; }
+  .br-prompt-table .rt-col-controlled { grid-area: 2 / 1 / 3 / 2; }
+  .br-prompt-table .rt-col-raw { grid-area: 2 / 2 / 3 / 3; width: auto; }
+  .br-prompt-table td.rt-col-votes { grid-area: 2 / 3 / 3 / 4; text-align: right; }
+  .br-prompt-table .br-spread { white-space: normal; }
+  .br-share { padding: 14px; }
+}
+.bm-page-h > .bm-head-row { flex-wrap: wrap; align-items: flex-end; }
+.br-new-form .br-field select, .br-new-form .br-field input[type="text"] { width: 100%; min-width: 0; }
+/* The rankings table folds into two lines on a phone: band + model + score, then the numbers with their names. */
+@media (max-width: 560px) {
+  .br-rank-table, .br-rank-table tbody { display: block; width: 100%; }
+  .br-rank-table thead { display: none; }
+  .br-rank-table tr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 11px 14px; border-bottom: 1px solid var(--border); }
+  .br-rank-table tbody tr:last-child { border-bottom: 0; }
+  .br-rank-table td { display: block; padding: 0; border: 0; min-width: 0; width: auto; white-space: normal; }
+  .br-rank-table td.br-rank { display: none; }
+  .br-rank-table td.br-c-band { flex: none; order: 0; }
+  .br-rank-table td.br-c-model { flex: 1 1 auto; order: 0; overflow-wrap: anywhere; }
+  .br-rank-table td.br-c-score { flex: none; order: 0; text-align: right; }
+  .br-rank-table tr::after { content: ""; flex-basis: 100%; height: 0; order: 1; }
+  .br-rank-table td.br-c-metric, .br-rank-table td.br-c-cost, .br-rank-table td.br-c-time, .br-rank-table td.br-c-runs { flex: none; order: 2; font-size: .82rem; color: var(--text-secondary); text-align: left; }
+  .br-rank-table td[data-label]::before { content: attr(data-label) " "; color: var(--text-muted); }
+}
+.br-prompt-table .rt-model { white-space: nowrap; }
+@media (max-width: 560px) { .br-prompt-table .rt-model { white-space: normal; overflow-wrap: anywhere; } }
+.br-duo-pane .br-prompt-table { font-size: .86rem; }
+.br-duo-pane .br-prompt-table th, .br-duo-pane .br-prompt-table td { padding: 8px 8px; }
+.br-prompt-table .rt-col-band { width: 5em; }
+.br-prompt-table .rt-col-raw { width: 7em; }
+.br-prompt-table .rt-col-votes { width: 3.2em; }

@@ -154,7 +154,44 @@ function metricTabs(base, current) {
 function rankingsTable(entries, metric) {
     if (!entries.length) return '';
     const col = { value: (e) => (e.value == null ? '—' : `${fmtScore(e.value)} / $`), speed: (e) => (e.speed == null ? '—' : `${fmtScore(e.speed)} / min`), consistency: (e) => (e.consistency == null ? '—' : `±${fmtScore(e.consistency)}`) }[metric];
-    return html`<div class="br-table-wrap"><table class="br-table"><thead><tr><th scope="col">#</th><th scope="col">Model</th><th scope="col">Score</th>${col ? html`<th scope="col">${METRICS.find((m) => m.id === metric).label}</th>` : ''}<th scope="col" class="br-num">Cost / run</th><th scope="col" class="br-num">Time</th><th scope="col" class="br-num">Runs</th></tr></thead><tbody>${entries.map((e, i) => html`<tr><td class="br-rank">${i + 1}</td><td><a class="br-model" href="${modelHref(e.model)}">${e.model}</a></td><td>${scoreBar(e.score)}</td>${col ? html`<td class="br-num">${col(e)}</td>` : ''}<td class="br-num">${fmtUsd(e.cost_usd)}</td><td class="br-num">${fmtMs(e.ms)}</td><td class="br-num">${e.runs}</td></tr>`)}</tbody></table></div>`;
+    const bands = metric === 'score' && entries.some((e) => e.band);
+    return html`<div class="br-table-wrap"><table class="br-table br-rank-table"><thead><tr><th scope="col">#</th>${bands ? html`<th scope="col">Band</th>` : ''}<th scope="col">Model</th><th scope="col">Score</th>${col ? html`<th scope="col">${METRICS.find((m) => m.id === metric).label}</th>` : ''}<th scope="col" class="br-num">Cost / run</th><th scope="col" class="br-num">Time</th><th scope="col" class="br-num">Runs</th></tr></thead><tbody>${entries.map((e, i) => html`<tr><td class="br-rank">${i + 1}</td>${bands ? html`<td class="br-c-band"><span class="rt-band">${e.band || '—'}</span></td>` : ''}<td class="br-c-model"><a class="br-model" href="${modelHref(e.model)}">${e.model}</a></td><td class="br-c-score">${scoreBar(e.score)}</td>${col ? html`<td class="br-num br-c-metric" data-label="${METRICS.find((m) => m.id === metric).label}">${col(e)}</td>` : ''}<td class="br-num br-c-cost" data-label="cost/run">${fmtUsd(e.cost_usd)}</td><td class="br-num br-c-time" data-label="time">${fmtMs(e.ms)}</td><td class="br-num br-c-runs" data-label="runs">${e.runs}</td></tr>`)}</tbody></table></div>`;
+}
+
+/**
+ * One leaderboard in the same `br-` table language for a person's own prompts and the public board beside it.
+ * Bands are the overlapping score intervals (2nd–4th, not a fake third place); the cost is per solved task, the
+ * rules' value metric (the median cost of an attempt divided by the success rate).
+ */
+function promptLeaderboard(entries, { emptyText = 'No runs yet.', caption = 'Models in rank bands, with their score, cost per solved task and run count' } = {}) {
+    if (!entries.length) return html`<div class="bm-empty"><p>${emptyText}</p></div>`;
+    return html`<div class="br-table-wrap"><table class="br-table rt-table br-prompt-table">
+<caption class="br-sr">${caption}</caption>
+<thead><tr><th scope="col">Band</th><th scope="col">Model</th><th scope="col">Score</th><th scope="col" class="br-num">Cost / solved task</th><th scope="col" class="br-num">Runs</th></tr></thead>
+<tbody>${entries.map((e) => html`<tr data-model="${e.model}"><td class="rt-col-band"><span class="rt-band">${e.band || '—'}</span></td><td class="rt-col-model"><a class="rt-model br-model" href="${modelHref(e.model)}">${e.model}</a></td><td class="rt-col-controlled">${scoreBar(e.score)}${e.spread ? html`<span class="br-fine br-spread">${fmtScore(e.min_score)}–${fmtScore(e.max_score)} over ${plural(e.runs, 'run')}</span>` : ''}</td><td class="rt-col-raw br-num rt-prompt-cost">${e.cost_per_solved == null ? '—' : fmtUsd(e.cost_per_solved)}</td><td class="rt-col-votes br-num">${e.runs}</td></tr>`)}</tbody></table></div>`;
+}
+
+/** The owner's leaderboard beside the public one for the same kind; the two are never mixed. */
+function promptBoards({ ownEntries = [], publicBoard = null, ownRuns = 0, visibility = 'private' }) {
+    const mineLabel = `Your prompts, ${ownRuns} ${ownRuns === 1 ? 'run' : 'runs'}`;
+    const publicEntries = (publicBoard && publicBoard.entries) || [];
+    return html`<section class="bm-section br-your-prompts" id="br-rank" aria-labelledby="br-yours-h">
+<div class="br-duo">
+<section class="br-duo-pane" aria-labelledby="br-yours-h">
+<div class="bm-head-row"><h2 id="br-yours-h">${mineLabel}</h2><span class="br-chip br-vis">${visibility}</span></div>
+<p class="br-fine">Your own tasks, your runs. This board is never mixed into the public ranks.</p>
+${ownEntries.length ? valueChart(ownEntries) : ''}
+${promptLeaderboard(ownEntries, { emptyText: 'No runs yet. Start it on 3 to 6 models; every run lands here, whatever it scores.' })}
+</section>
+<section class="br-duo-pane" aria-labelledby="br-public-h">
+<div class="bm-head-row"><h2 id="br-public-h">The public board for this kind</h2>${publicBoard && publicBoard.benchmark ? html`<a class="bm-more" href="${benchmarkHref(publicBoard.benchmark.id)}">${publicBoard.benchmark.title}</a>` : ''}</div>
+<p class="br-fine">Other people's runs of the public set, ranked the same way. Your prompts are not in it.</p>
+${publicEntries.length
+        ? promptLeaderboard(publicEntries, { emptyText: '' })
+        : empty('No public board yet', 'No public benchmark of this kind has verified runs yet, so there is nothing to stand beside. Your own board still counts your runs.')}
+</section>
+</div>
+</section>`;
 }
 
 // ---- runs list -----------------------------------------------------------------------------------------------
@@ -181,28 +218,92 @@ function artifact(a, label) {
 
 // ---- pages ---------------------------------------------------------------------------------------------------
 
-function benchmarksIndex({ benchmarks = [], kinds = [], kind = null, q = '' } = {}) {
+function benchmarksIndex({ benchmarks = [], kinds = [], kind = null, q = '', mine = [], signedIn = false } = {}) {
     const families = [...new Set(kinds.map((k) => String(k).split('.')[0]))].sort();
     const chip = (label, value) => {
         const on = (value || null) === (kind || null);
         const href = value ? `/benchmarks?kind=${encodeURIComponent(value)}` : '/benchmarks';
         return html`<a class="br-filter" href="${href}"${on ? raw(' aria-current="page"') : ''}>${label}</a>`;
     };
+    const own = mine.length
+        ? html`<section class="bm-section br-mine" aria-labelledby="br-mine-h"><div class="bm-head-row"><h2 id="br-mine-h">Your benchmarks</h2><span class="bm-count">${mine.length}</span></div>
+<p class="br-fine">Private ones are yours alone. An unlisted one opens with its share link; a public one is listed below.</p>
+<ul class="br-cards">${mine.map(benchmarkCard)}</ul></section>`
+        : '';
     return html`<div class="bm-wrap br" id="br-benchmarks">
-<header class="bm-page-h"><p class="bm-kicker">Benchmarks</p><h1>Benchmarks anyone can run again</h1>
-<p class="bm-lede">Each one is a versioned set of tasks with its judges and limits. A version never changes once a run names it, so every score here can be repeated.</p></header>
+<header class="bm-page-h"><div class="bm-head-row"><div><p class="bm-kicker">Benchmarks</p><h1>Benchmarks anyone can run again</h1>
+<p class="bm-lede">Each one is a versioned set of tasks with its judges and limits. A version never changes once a run names it, so every score here can be repeated.</p></div><a class="bm-btn" href="/benchmarks/new">Make your own</a></div></header>
 <form class="br-search" method="get" action="/benchmarks" role="search"><label class="br-sr" for="br-q">Search benchmarks</label><input id="br-q" name="q" type="search" value="${q}" placeholder="Search by title, tag or kind" autocomplete="off">${kind ? html`<input type="hidden" name="kind" value="${kind}">` : ''}<button class="bm-btn bm-btn-small" type="submit">Search</button></form>
 <nav class="br-filters" aria-label="Filter by family">${chip('All', null)}${families.map((f) => chip(f, f))}</nav>
+${own}
+${signedIn ? '' : html`<p class="br-fine br-mine-hint">Signed in, you can paste 5 to 50 of your own prompts as a private benchmark: <a href="/benchmarks/new">make your own</a>.</p>`}
 ${benchmarks.length ? html`<ul class="br-cards">${benchmarks.map(benchmarkCard)}</ul>` : empty('No benchmark matches', q ? 'Try a shorter search, or clear the filter.' : 'None are published yet.', html`<a class="bm-btn bm-btn-quiet bm-btn-small" href="/benchmarks">Show all</a>`)}
 </div>`;
 }
 
 function benchmarkCard(b) {
     const tasks = ((b.draft && b.draft.tasks) || []).length;
-    return html`<li class="br-card"><a class="br-card-link" href="${benchmarkHref(b.id)}"><span class="br-card-top">${kindChip(b.kind)}<span class="br-card-v">v${b.latest_version || 0}</span></span><span class="br-card-title">${b.title}</span><span class="br-card-desc">${b.description}</span><span class="br-card-foot">${plural(tasks, 'task')}${b.runs != null ? html` · ${plural(b.runs, 'run')}` : ''}${b.parent ? ' · a fork' : ''}</span></a></li>`;
+    const vis = b.visibility && b.visibility !== 'public'
+        ? html`<span class="br-chip br-vis">${b.visibility === 'private' ? 'private' : 'unlisted'}</span>`
+        : '';
+    return html`<li class="br-card"><a class="br-card-link" href="${benchmarkHref(b.id)}"><span class="br-card-top">${kindChip(b.kind)}<span class="br-card-v">v${b.latest_version || 0}</span>${vis}</span><span class="br-card-title">${b.title}</span><span class="br-card-desc">${b.description}</span><span class="br-card-foot">${plural(tasks, 'task')}${b.runs != null ? html` · ${plural(b.runs, 'run')}` : ''}${b.parent ? ' · a fork' : ''}</span></a></li>`;
 }
 
-function benchmarkPage({ benchmark, definition, version, rankings, metric = 'score', runs = [], codesRunUrl = null, viewer = null, baseUrl = '' }) {
+/** The owner's sharing controls: private, an unlisted link, or public. Plain form posts, no JavaScript. */
+function shareBox({ benchmark, shareUrl = null, error = null }) {
+    const visibility = benchmark.visibility || 'private';
+    const note = visibility === 'private'
+        ? 'Private: only you can see this benchmark and its prompts. No link works.'
+        : visibility === 'unlisted'
+            ? 'Unlisted: anyone with the link can see it. It is not in any list, search, sitemap or the open data.'
+            : 'Public: it is in the benchmark list, the sitemap and the open data, with every run published.';
+    return html`<section class="bm-section br-share" id="br-share" aria-labelledby="br-share-h">
+<div class="bm-head-row"><h2 id="br-share-h">Sharing</h2><span class="br-chip br-vis">${visibility}</span></div>
+<p class="br-fine">${note}</p>
+${error ? html`<div class="bm-note is-bad" role="alert">${error}</div>` : ''}
+${shareUrl ? html`<div class="bm-note br-share-now" role="status"><p>Your unlisted link is ready. It is shown once; copy it now. Share it again for a new link; the old one stops working.</p><label class="br-field"><span>The link</span><input class="br-share-link" type="text" readonly value="${shareUrl}" onfocus="this.select()"></label></div>` : ''}
+<form class="br-share-form" method="post" action="/benchmarks/${encodeURIComponent(benchmark.id)}/share">
+<button class="bm-btn" type="submit" name="visibility" value="unlisted">${visibility === 'unlisted' ? 'New unlisted link' : 'Share an unlisted link'}</button>
+<button class="bm-btn bm-btn-quiet" type="submit" name="visibility" value="public">Publish public</button>
+<button class="bm-btn bm-btn-quiet" type="submit" name="visibility" value="private">Make private</button>
+</form>
+<p class="br-fine">A person with the unlisted link can read the prompts and the runs. Only you can start a run on it.</p>
+</section>`;
+}
+
+/** The new-benchmark form: 5–50 pasted prompts, one per line or CSV with an optional expected answer. */
+function newBenchmarkPage({ kinds = [], values = {}, error = null, signedIn = false, loginUrl = '/auth/login' }) {
+    const head = html`<nav class="br-crumbs" aria-label="Breadcrumb"><a href="/benchmarks">Benchmarks</a><span aria-hidden="true">/</span><span>Make your own</span></nav>
+<header class="bm-page-h"><p class="bm-kicker">Your prompts</p><h1>Make a benchmark from your own prompts</h1>
+<p class="bm-lede">Paste 5 to 50 prompts you really use. They become the tasks of a private benchmark: no model is called and nothing is charged until you run it on openvibe.codes.</p></header>`;
+    if (!signedIn) {
+        return html`<div class="bm-wrap br bm-narrow" id="br-new">${head}${empty('Sign in first', 'A benchmark of your own is attached to your account, so the prompts can be exported or deleted with you.', html`<a class="bm-btn bm-btn-small" href="${loginUrl}">Sign in with OpenVibe</a>`)}</div>`;
+    }
+    const kindList = [...kinds].sort((a, b) => (a.id === 'text.answer' ? -1 : b.id === 'text.answer' ? 1 : String(a.name || a.id).localeCompare(String(b.name || b.id))));
+    const kind = values.kind || 'text.answer';
+    const format = values.format || 'auto';
+    return html`<div class="bm-wrap br bm-narrow" id="br-new">${head}
+${error ? html`<div class="bm-note is-bad" role="alert">${error}</div>` : ''}
+<form class="br-form br-new-form" method="post" action="/benchmarks/new">
+<label class="br-field"><span>Name (optional)</span><input name="title" type="text" maxlength="160" value="${values.title || ''}" placeholder="Your prompts, e.g. the support replies I really send" autocomplete="off"></label>
+<label class="br-field"><span>Description (optional)</span><textarea name="description" rows="3" maxlength="4000" placeholder="What these prompts are for.">${values.description || ''}</textarea></label>
+<label class="br-field"><span>Kind</span><select name="kind">${kindList.map((k) => html`<option value="${k.id}"${k.id === kind ? raw(' selected') : ''}>${k.name || k.id}${k.id === 'text.answer' ? ' (a plain text answer)' : ''}</option>`)}</select></label>
+<fieldset class="br-paste"><legend>Your prompts</legend>
+<label class="br-field"><span>Format</span><select name="format">
+<option value="auto"${format === 'auto' ? raw(' selected') : ''}>Auto-detect</option>
+<option value="lines"${format === 'lines' ? raw(' selected') : ''}>One prompt per line</option>
+<option value="csv"${format === 'csv' ? raw(' selected') : ''}>CSV: prompt, expected answer (optional)</option>
+</select></label>
+<label class="br-field"><span>Paste 5 to 50 prompts</span><textarea class="br-prompts" name="prompts" rows="12" required placeholder="Write a haiku about rain.\nExplain a database index to a new developer.\nWhat is 17 × 24?">${values.prompts || ''}</textarea></label>
+<p class="br-fine">One per line, or CSV with an optional expected answer in the second column. A quoted field may hold commas. The benchmark is private by default; you can share a link or publish it after it exists.</p>
+</fieldset>
+<div class="bm-actions"><button class="bm-btn" type="submit">Make my benchmark</button><a class="bm-btn bm-btn-quiet" href="/benchmarks">Cancel</a></div>
+</form>
+<p class="br-fine">The prompts are never logged. They are exported and deleted with your account, like the rest of your data, and they are only in a public page if you publish the benchmark.</p>
+</div>`;
+}
+
+function benchmarkPage({ benchmark, definition, version, rankings, metric = 'score', runs = [], codesRunUrl = null, viewer = null, baseUrl = '', ownBoards = null, share = null, shared = false, owner = false }) {
     const d = definition || {};
     const tasks = Array.isArray(d.tasks) ? d.tasks : [];
     const shown = tasks.filter((t) => !t.holdout && t.prompt);
@@ -211,21 +312,34 @@ function benchmarkPage({ benchmark, definition, version, rankings, metric = 'sco
     const limits = d.limits || {};
     const entries = (rankings && rankings.entries) || [];
     const base = benchmarkHref(benchmark.id);
-    const runYourself = codesRunUrl
-        ? html`<a class="bm-btn" href="${benchmarkHref(benchmark.id)}/run">Run it yourself</a>`
-        : html`<a class="bm-btn bm-btn-quiet" href="/docs#br-publish">Publish a run</a>`;
+    const canRun = Boolean(codesRunUrl) && !shared;
+    const runYourself = shared
+        ? ''
+        : canRun
+            ? html`<a class="bm-btn" href="${benchmarkHref(benchmark.id)}/run">Run it yourself</a>`
+            : html`<a class="bm-btn bm-btn-quiet" href="/docs#br-publish">Publish a run</a>`;
+    const byline = owner ? 'by you' : shared ? 'by its owner' : `by ${benchmark.owner}`;
+    const privateNote = benchmark.visibility === 'private'
+        ? html`<div class="bm-note br-private" role="status"><b>Private.</b> Only you can see this benchmark and its prompts. It is not in any list, search or the open data.</div>`
+        : shared
+            ? html`<div class="bm-note br-shared" role="status"><b>Shared by its owner.</b> This page is not in any list or search engine. The link can stop working if the owner makes it private.</div>`
+            : '';
     return html`<div class="bm-wrap br" id="br-benchmark">
 <nav class="br-crumbs" aria-label="Breadcrumb"><a href="/benchmarks">Benchmarks</a><span aria-hidden="true">/</span><span>${benchmark.title}</span></nav>
-<header class="br-head"><div class="br-head-main"><p class="br-head-meta">${kindChip(benchmark.kind)}<span>v${version || benchmark.latest_version || 0}</span><span>by ${benchmark.owner}</span>${benchmark.parent ? html`<a href="${benchmarkHref(benchmark.parent)}">forked</a>` : ''}</p>
+<header class="br-head"><div class="br-head-main"><p class="br-head-meta">${kindChip(benchmark.kind)}<span>v${version || benchmark.latest_version || 0}</span><span>${byline}</span>${benchmark.visibility !== 'public' ? html`<span class="br-chip br-vis">${benchmark.visibility}</span>` : ''}${benchmark.parent ? html`<a href="${benchmarkHref(benchmark.parent)}">forked</a>` : ''}</p>
 <h1>${benchmark.title}</h1>${benchmark.description ? html`<p class="bm-lede">${benchmark.description}</p>` : ''}</div>
-<div class="br-head-act">${runYourself}<p class="br-fine">${codesRunUrl ? 'On openvibe.codes, with your own keys. The result is published here.' : 'Running it on openvibe.codes with your own keys is coming. Today a run is published through the API.'}</p></div></header>
+<div class="br-head-act">${runYourself}<p class="br-fine">${canRun ? 'On openvibe.codes, with your own keys or the free pool through OpenVibe.AI. The result is published here.' : codesRunUrl ? 'Only the owner starts runs on this benchmark. Its results are readable here.' : 'Running it on openvibe.codes with your own keys is coming. Today a run is published through the API.'}</p></div></header>
+${privateNote}
 <dl class="br-facts"><div><dt>Tasks</dt><dd>${tasks.length}${hidden ? html` <span class="br-fine">(${hidden} hidden)</span>` : ''}</dd></div><div><dt>Judged by</dt><dd>${judges.length ? judges.map((j) => String(j.type).replace(/_/g, ' ')).join(', ') : '—'}</dd></div><div><dt>Limits</dt><dd>${[limits.ms ? fmtMs(limits.ms) : null, limits.tokens ? `${fmtTokens(limits.tokens)} tokens` : null, limits.usd ? fmtUsd(limits.usd) : null].filter(Boolean).join(' · ') || '—'}</dd></div><div><dt>Verified runs</dt><dd>${entries.reduce((n, e) => n + e.runs, 0)}</dd></div></dl>
-<section class="bm-section" id="br-rank" aria-labelledby="br-rank-h"><div class="bm-head-row"><h2 id="br-rank-h">Rankings</h2>${metricTabs(base, metric)}</div>
+${owner ? shareBox({ benchmark, shareUrl: share && share.shareUrl, error: share && share.error }) : ''}
+${ownBoards
+        ? promptBoards(ownBoards)
+        : html`<section class="bm-section" id="br-rank" aria-labelledby="br-rank-h"><div class="bm-head-row"><h2 id="br-rank-h">Rankings</h2>${metricTabs(base, metric)}</div>
 ${valueChart(entries)}
 ${entries.length ? rankingsTable(entries, metric) : empty('No verified runs yet', 'A run counts here once openvibe.codes, Run or a Node worker ran it and published it. Submitted runs are listed below but never ranked.')}
-</section>
+</section>`}
 <section class="bm-section" aria-labelledby="br-tasks-h"><div class="bm-head-row"><h2 id="br-tasks-h">Tasks</h2><span class="bm-count">${tasks.length}</span></div>
-<ol class="br-tasks">${shown.map((t) => html`<li class="br-task"><span class="br-task-id br-mono">${t.id}</span><p>${t.prompt}</p></li>`)}${hidden ? html`<li class="br-task is-hidden"><span class="br-task-id br-mono">${plural(hidden, 'task')}</span><p>Held out: only the executor sees ${hidden === 1 ? 'it' : 'them'}, so nobody can tune for the answer.</p></li>` : ''}</ol></section>
+<ol class="br-tasks">${shown.map((t) => html`<li class="br-task"><span class="br-task-id br-mono">${t.id}</span><p>${t.prompt}</p>${t.expected && t.expected.answer ? html`<p class="br-fine">Expected: ${String(t.expected.answer).slice(0, 300)}</p>` : ''}</li>`)}${hidden ? html`<li class="br-task is-hidden"><span class="br-task-id br-mono">${plural(hidden, 'task')}</span><p>Held out: only the executor sees ${hidden === 1 ? 'it' : 'them'}, so nobody can tune for the answer.</p></li>` : ''}</ol></section>
 <section class="bm-section" aria-labelledby="br-latest-h"><div class="bm-head-row"><h2 id="br-latest-h">Latest runs</h2>${runs.length > 1 ? html`<a class="bm-more" href="${compareHref(runs.slice(0, 2).map((r) => r.id))}">Compare the newest two</a>` : ''}</div>
 ${runs.length ? runsList(runs) : empty('No runs yet', 'The first run shows up here, verified or submitted.')}</section>
 ${benchmarkUseThis({ baseUrl, benchmark, entries, viewer })}
@@ -250,17 +364,17 @@ function runForm({ benchmark, definition, version, signedIn, harnesses = [], sug
     for (const id of p.harnesses) if (!harnessList.some((h) => h.id === id)) harnessList.push({ id, label: id });
     const base = benchmarkHref(benchmark.id);
     const head = html`<nav class="br-crumbs" aria-label="Breadcrumb"><a href="/benchmarks">Benchmarks</a><span aria-hidden="true">/</span><a href="${base}">${benchmark.title}</a><span aria-hidden="true">/</span><span>Run it</span></nav>
-<header class="bm-page-h"><p class="bm-kicker">Run it yourself</p><h1>${benchmark.title}</h1><p class="bm-lede">openvibe.codes runs every task on each model and harness you pick, with your own keys, and publishes each run here as verified, whatever it scores.</p></header>`;
+<header class="bm-page-h"><p class="bm-kicker">Run it yourself</p><h1>${benchmark.title}</h1><p class="bm-lede">Pick 3 to 6 models. openvibe.codes runs every task on each model and harness, with your own keys through OpenVibe.AI or the free pool, and publishes each run here as verified, whatever it scores.</p></header>`;
     if (!signedIn) {
-        return html`<div class="bm-wrap br bm-narrow" id="br-run-form">${head}${empty('Sign in first', 'A run uses your own provider keys on openvibe.codes, so it starts as you.', html`<a class="bm-btn bm-btn-small" href="${loginUrl}">Sign in with OpenVibe</a>`)}</div>`;
+        return html`<div class="bm-wrap br bm-narrow" id="br-run-form">${head}${empty('Sign in first', 'A run uses your own provider keys, or the free pool, through OpenVibe.AI on openvibe.codes, so it starts as you.', html`<a class="bm-btn bm-btn-small" href="${loginUrl}">Sign in with OpenVibe</a>`)}</div>`;
     }
     const check = (name, value, label, on) => html`<label class="br-check"><input type="checkbox" name="${name}" value="${value}"${on ? raw(' checked') : ''}><span>${label}</span></label>`;
     return html`<div class="bm-wrap br bm-narrow" id="br-run-form">${head}
 ${error ? html`<div class="bm-note is-bad" role="alert">${error}</div>` : ''}
-${confirm === 'unknown' ? html`<div class="bm-note" role="status">This benchmark sets no dollar limit per task, so what it costs depends on the models you pick. It runs on your own keys. Check the choices below, then confirm.</div>` : confirm != null ? html`<div class="bm-note" role="status">This run may cost up to <b>${fmtUsd(confirm)}</b> on your own keys. Check the choices below, then confirm.</div>` : ''}
+${confirm === 'unknown' ? html`<div class="bm-note" role="status">This benchmark sets no dollar limit per task, so what it costs depends on the models you pick. It runs on your own keys or the free pool, through OpenVibe.AI. Check the choices below, then confirm.</div>` : confirm != null ? html`<div class="bm-note" role="status">This run may cost up to <b>${fmtUsd(confirm)}</b> on your own keys. Check the choices below, then confirm.</div>` : ''}
 <form class="br-form" method="post" action="${base}/run" data-tasks="${tasks}" data-usd="${usd}">
 <fieldset><legend>Models</legend>${modelList.length ? html`<div class="br-checks">${modelList.map((m) => check('models', m, m, p.models.includes(m)))}</div>` : ''}
-<label class="br-field"><span>${modelList.length ? 'More models, separated by commas' : 'Models, separated by commas'}</span><input name="more_models" type="text" autocomplete="off" placeholder="deepseek-v4.1-flash, kimi-k3"></label></fieldset>
+<label class="br-field"><span>${modelList.length ? 'More models, separated by commas' : 'Models, separated by commas (3 to 6)'}</span><input name="more_models" type="text" autocomplete="off" placeholder="deepseek-v4.1-flash, kimi-k3"></label></fieldset>
 <fieldset><legend>Harnesses</legend><div class="br-checks">${harnessList.map((h) => check('harnesses', h.id, h.label, p.harnesses.includes(h.id)))}</div></fieldset>
 <label class="br-field"><span>Runs of each</span><select name="repeat">${[1, 2, 3, 5].map((n) => html`<option value="${n}"${n === Number(p.repeat) ? raw(' selected') : ''}>${n === 1 ? 'Once' : `${n} times (shows how steady it is)`}</option>`)}</select></label>
 <p class="br-fine" data-estimate>${usd > 0 ? `${tasks} ${tasks === 1 ? 'task' : 'tasks'} × your picks × runs, at up to ${fmtUsd(usd)} a task. Over $1 asks you once more.` : `${tasks} ${tasks === 1 ? 'task' : 'tasks'} × your picks × runs. This benchmark sets no dollar limit per task, so you confirm before it starts.`}</p>
@@ -337,6 +451,7 @@ ${modelUseThis({ baseUrl, model, rows, viewer })}
 }
 
 module.exports = {
-    benchmarksIndex, benchmarkPage, runForm, runPage, comparePage, modelPage, valueChart, METRICS,
+    benchmarksIndex, benchmarkPage, newBenchmarkPage, promptLeaderboard, promptBoards, shareBox,
+    runForm, runPage, comparePage, modelPage, valueChart, METRICS,
     fmtScore, fmtUsd, fmtMs, fmtTokens, ordinal, benchmarkCard, render,
 };

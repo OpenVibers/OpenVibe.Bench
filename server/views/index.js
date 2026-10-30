@@ -16,7 +16,7 @@ function home({ kinds = [], counts = { kinds: 0 }, benchmarks = [] } = {}) {
     return `<div class="bm-wrap bm-home" id="bm-home">
 <header class="bm-hero"><p class="bm-kicker">OpenVibe.Bench</p><h1>See what AI really makes</h1>
 <p class="bm-lede">Every model on the same tasks: real pages, games, scenes and fixes, shown live side by side. Every run is published with what it cost and how long it took, and anyone can run it again.</p>
-<div class="bm-actions"><a class="bm-btn" href="/benchmarks">Browse benchmarks</a><a class="bm-btn bm-btn-quiet" href="/showcase">Vote in the showcase</a></div></header>
+<div class="bm-actions"><a class="bm-btn" href="/benchmarks">Browse benchmarks</a><a class="bm-btn bm-btn-quiet" href="/benchmarks/new">Make your own prompts</a><a class="bm-btn bm-btn-quiet" href="/showcase">Vote in the showcase</a></div></header>
 <ul class="bm-why" aria-label="What Bench promises">
 <li><b>Outputs, not just scores</b><span>The pages, games and drawings themselves, live in sandboxed frames, next to the numbers.</span></li>
 <li><b>Every run published</b><span>Whatever it scored. No private variants, no best of ten: the service that ran it publishes it.</span></li>
@@ -44,6 +44,7 @@ ${ep('GET', '/api/v1/rounds/:id', 'One round with entries; entries stay blind un
 ${ep('GET', '/api/v1/boards/:kindId?type=elo|pareto|cost', 'A rendered board.')}
 ${ep('GET', '/api/v1/models/:model', 'One model across every kind.')}
 ${ep('GET', '/api/v1/datasets/:kindId.jsonl', 'The open dataset (prompts, entries, judgements without voter ids, ratings).')}
+${ep('GET', '/api/v1/datasets/benchmarks.jsonl', 'Every public benchmark, its visible tasks and every run, with no person id.')}
 </dl></section>
 <section><h2>Write</h2><dl class="bm-eps">
 ${ep('POST', '/api/v1/kinds/:kindId/tasks', '<code>{ prompt, task_class?, public? }</code>. A person or a service with bench.task.create.')}
@@ -55,10 +56,11 @@ ${ep('POST', '/api/v1/evals', 'Create a private task suite (never in the public 
 ${ep('POST', '/api/v1/evals/:id/run', 'Run a private eval against chosen offers, under the free daily cap.')}
 ${ep('GET', '/api/v1/evals/:id/results', 'A private eval and its runs.')}
 </dl></section>
-<section id="br-publish"><h2>Benchmarks and runs</h2><p class="bm-fine">A benchmark is a versioned set of tasks, judges and limits; a frozen version never changes once a run names it. A run published by a service (openvibe.codes, Run, a Node worker) is <b>verified</b>; one published with a person's token is <b>submitted</b>, labelled, and never ranked by default.</p><dl class="bm-eps">
-${ep('GET', '/api/v1/benchmarks?kind=&tag=&q=&mine=1', 'The public benchmarks; <code>mine=1</code> adds your own unlisted ones.')}
-${ep('GET', '/api/v1/benchmarks/:id[@version]', 'A definition. Held-out tasks keep their prompt for the executor and the owner.')}
+<section id="br-publish"><h2>Benchmarks and runs</h2><p class="bm-fine">A benchmark is a versioned set of tasks, judges and limits; a frozen version never changes once a run names it. A run published by a service (openvibe.codes, Run, a Node worker) is <b>verified</b>; one published with a person's token is <b>submitted</b>, labelled, and never ranked by default. Your own prompts can be pasted at <a href="/benchmarks/new">/benchmarks/new</a>: 5 to 50 of them, private by default, with an unlisted share link or a public listing when you choose.</p><dl class="bm-eps">
+${ep('GET', '/api/v1/benchmarks?kind=&tag=&q=&mine=1', 'The public benchmarks; <code>mine=1</code> adds your own unlisted and private ones.')}
+${ep('GET', '/api/v1/benchmarks/:id[@version]', 'A definition. Held-out tasks keep their prompt for the executor and the owner; a private benchmark is a 404 to everyone else.')}
 ${ep('POST', '/api/v1/benchmarks', 'Create one (<code>bench.benchmark.write</code>); <code>PUT</code> saves a draft, <code>POST …/versions</code> freezes it, <code>POST …/fork</code> forks it.')}
+${ep('POST', '/api/v1/benchmarks/:id/share', '<code>{ visibility: "private" | "unlisted" | "public" }</code>. The owner only. An unlisted call returns a new share token once; the old link stops working.')}
 ${ep('POST', '/api/v1/runs', 'Publish a run: <code>{ benchmark: "bmk_…@N", model, provider, harness: { name, version }, executor, tasks: [{ task_id, score, cost_usd, ms, tokens, artifacts }], score, cost_usd, ms, tokens }</code>.')}
 ${ep('GET', '/api/v1/runs/:id', 'A run with its tasks; <code>/api/v1/compare?runs=a,b</code> puts up to four side by side.')}
 ${ep('GET', '/api/v1/rankings?benchmark=&metric=score|value|speed|consistency&harness=&since=', 'Medians per model over verified runs; value is score per dollar, speed is score per minute.')}

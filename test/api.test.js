@@ -17,7 +17,7 @@ const { boot, check, done } = require('./helpers/boot');
     await check('kinds are seeded from code (the 15 of §4.12 plus the nine showcase kinds)', async () => {
         const r = await t.get('/api/v1/kinds');
         assert.strictEqual(r.status, 200, r.text);
-        assert.strictEqual(r.json().kinds.length, 24);
+        assert.strictEqual(r.json().kinds.length, 25);
         const ids = r.json().kinds.map((k) => k.id);
         for (const want of ['design.page', 'games.match', 'meme.caption', 'vision.answer', 'codes.patch', 'speech.tts', 'speech.asr', 'translate.ja', 'search.answer']) {
             assert.ok(ids.includes(want), `missing kind ${want}`);

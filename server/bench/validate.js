@@ -3,11 +3,13 @@
 /**
  * What a benchmark and a run must look like before Bench stores them.
  *
- * The shapes are the released contracts (bench.benchmark@1 and bench.run@1, openvibe-contracts v0.244.0). Bench keeps
- * its own copy of the rules so the service can refuse a bad document before it reaches the database, and so a
- * caller gets a field-level error instead of a stack trace.
+ * The shapes are the released contracts (bench.benchmark@1 and bench.run@1, openvibe-contracts). Bench keeps its
+ * own copy of the rules so the service can refuse a bad document before it reaches the database, and so a caller
+ * gets a field-level error instead of a stack trace.
  *
- * The rules mirror the contract's: the same required fields, the same enums, the same ranges.
+ * The rules mirror the contract's: the same required fields, the same enums, the same ranges. The one addition is
+ * private visibility (B11), Bench's stricter form of unlisted: the benchmark row is private while the frozen
+ * contract document stays unlisted, so every stored contract document remains a valid bench.benchmark@1.
  */
 
 const { assertValid } = require('openvibe-contracts');
@@ -22,7 +24,9 @@ const BENCHMARK_ID = /^bmk_[0-9A-HJKMNP-TV-Z]{26}$/;
 const RUN_ID = /^brn_[0-9A-HJKMNP-TV-Z]{26}$/;
 const BENCHMARK_REF = /^bmk_[0-9A-HJKMNP-TV-Z]{26}@[0-9]+$/;
 
-const VISIBILITIES = ['public', 'unlisted'];
+// private is Bench's own stricter form of unlisted (B11): the row's access is private; the frozen contract
+// document says unlisted, because the published shape knows only public and unlisted.
+const VISIBILITIES = ['public', 'unlisted', 'private'];
 const SCORING_METHODS = ['mean', 'weighted', 'pass_rate', 'sum'];
 const EXECUTOR_KINDS = ['codes', 'run', 'node', 'submitted'];
 const PROVENANCES = ['verified', 'submitted'];
