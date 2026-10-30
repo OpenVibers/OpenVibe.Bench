@@ -211,7 +211,7 @@ function benchmarkPage({ benchmark, definition, version, rankings, metric = 'sco
     const entries = (rankings && rankings.entries) || [];
     const base = benchmarkHref(benchmark.id);
     const runYourself = codesRunUrl
-        ? html`<a class="bm-btn" href="${codesRunUrl}?benchmark=${encodeURIComponent(`${benchmark.id}@${version || benchmark.latest_version}`)}">Run it yourself</a>`
+        ? html`<a class="bm-btn" href="${benchmarkHref(benchmark.id)}/run">Run it yourself</a>`
         : html`<a class="bm-btn bm-btn-quiet" href="/docs#br-publish">Publish a run</a>`;
     return html`<div class="bm-wrap br" id="br-benchmark">
 <nav class="br-crumbs" aria-label="Breadcrumb"><a href="/benchmarks">Benchmarks</a><span aria-hidden="true">/</span><span>${benchmark.title}</span></nav>
@@ -228,6 +228,44 @@ ${entries.length ? rankingsTable(entries, metric) : empty('No verified runs yet'
 <section class="bm-section" aria-labelledby="br-latest-h"><div class="bm-head-row"><h2 id="br-latest-h">Latest runs</h2>${runs.length > 1 ? html`<a class="bm-more" href="${compareHref(runs.slice(0, 2).map((r) => r.id))}">Compare the newest two</a>` : ''}</div>
 ${runs.length ? runsList(runs) : empty('No runs yet', 'The first run shows up here, verified or submitted.')}</section>
 <p class="br-fine br-api">The same data as JSON: <a href="/api/v1/benchmarks/${encodeURIComponent(benchmark.id)}">definition</a> · <a href="/api/v1/rankings?benchmark=${encodeURIComponent(benchmark.id)}&amp;metric=${metric}">rankings</a></p>
+</div>`;
+}
+
+/**
+ * The run form: pick the models, the harnesses and how many times, see what it may cost, start it on openvibe.codes
+ * with your own keys. A plain form (it works without JavaScript); the estimate above $1 asks once more.
+ */
+function runForm({ benchmark, definition, version, signedIn, harnesses = [], suggested = [], picked = null, confirm = null, error = null, loginUrl }) {
+    const d = definition || {};
+    const tasks = Array.isArray(d.tasks) ? d.tasks.length : 0;
+    const usd = Number(d.limits && d.limits.usd) || 0;
+    const matrix = d.matrix || {};
+    const harnessList = harnesses.length ? harnesses.slice() : (matrix.harnesses || []).map((id) => ({ id, label: id }));
+    // Nothing chosen yet: the benchmark's own matrix, else the first harness, so the form starts one tap from ready.
+    const p = picked || { models: matrix.models || [], harnesses: (matrix.harnesses || []).length ? matrix.harnesses : harnessList.slice(0, 1).map((h) => h.id), repeat: 1 };
+    // Models: the matrix, the ones already ranked here (verified runs), and whatever was typed.
+    const modelList = [...new Set([...(matrix.models || []), ...suggested, ...p.models])].slice(0, 16);
+    for (const id of p.harnesses) if (!harnessList.some((h) => h.id === id)) harnessList.push({ id, label: id });
+    const base = benchmarkHref(benchmark.id);
+    const head = html`<nav class="br-crumbs" aria-label="Breadcrumb"><a href="/benchmarks">Benchmarks</a><span aria-hidden="true">/</span><a href="${base}">${benchmark.title}</a><span aria-hidden="true">/</span><span>Run it</span></nav>
+<header class="bm-page-h"><p class="bm-kicker">Run it yourself</p><h1>${benchmark.title}</h1><p class="bm-lede">openvibe.codes runs every task on each model and harness you pick, with your own keys, and publishes each run here as verified, whatever it scores.</p></header>`;
+    if (!signedIn) {
+        return html`<div class="bm-wrap br bm-narrow" id="br-run-form">${head}${empty('Sign in first', 'A run uses your own provider keys on openvibe.codes, so it starts as you.', html`<a class="bm-btn bm-btn-small" href="${loginUrl}">Sign in with OpenVibe</a>`)}</div>`;
+    }
+    const check = (name, value, label, on) => html`<label class="br-check"><input type="checkbox" name="${name}" value="${value}"${on ? raw(' checked') : ''}><span>${label}</span></label>`;
+    return html`<div class="bm-wrap br bm-narrow" id="br-run-form">${head}
+${error ? html`<div class="bm-note is-bad" role="alert">${error}</div>` : ''}
+${confirm === 'unknown' ? html`<div class="bm-note" role="status">This benchmark sets no dollar limit per task, so what it costs depends on the models you pick. It runs on your own keys. Check the choices below, then confirm.</div>` : confirm != null ? html`<div class="bm-note" role="status">This run may cost up to <b>${fmtUsd(confirm)}</b> on your own keys. Check the choices below, then confirm.</div>` : ''}
+<form class="br-form" method="post" action="${base}/run" data-tasks="${tasks}" data-usd="${usd}">
+<fieldset><legend>Models</legend>${modelList.length ? html`<div class="br-checks">${modelList.map((m) => check('models', m, m, p.models.includes(m)))}</div>` : ''}
+<label class="br-field"><span>${modelList.length ? 'More models, separated by commas' : 'Models, separated by commas'}</span><input name="more_models" type="text" autocomplete="off" placeholder="deepseek-v4.1-flash, kimi-k3"></label></fieldset>
+<fieldset><legend>Harnesses</legend><div class="br-checks">${harnessList.map((h) => check('harnesses', h.id, h.label, p.harnesses.includes(h.id)))}</div></fieldset>
+<label class="br-field"><span>Runs of each</span><select name="repeat">${[1, 2, 3, 5].map((n) => html`<option value="${n}"${n === Number(p.repeat) ? raw(' selected') : ''}>${n === 1 ? 'Once' : `${n} times (shows how steady it is)`}</option>`)}</select></label>
+<p class="br-fine" data-estimate>${usd > 0 ? `${tasks} ${tasks === 1 ? 'task' : 'tasks'} × your picks × runs, at up to ${fmtUsd(usd)} a task. Over $1 asks you once more.` : `${tasks} ${tasks === 1 ? 'task' : 'tasks'} × your picks × runs. This benchmark sets no dollar limit per task, so you confirm before it starts.`}</p>
+${confirm != null ? html`<input type="hidden" name="confirm" value="1">` : ''}
+<div class="bm-actions"><button class="bm-btn" type="submit">${confirm != null ? 'Confirm and start' : 'Start on openvibe.codes'}</button><a class="bm-btn bm-btn-quiet" href="${base}">Back</a></div>
+</form>
+<p class="br-fine">Version v${version || benchmark.latest_version || 0}, frozen: these runs can be compared with every other run of it.</p>
 </div>`;
 }
 
@@ -296,6 +334,6 @@ ${runs.length ? html`<section class="bm-section" aria-labelledby="br-mr-h"><h2 i
 }
 
 module.exports = {
-    benchmarksIndex, benchmarkPage, runPage, comparePage, modelPage, valueChart, METRICS,
+    benchmarksIndex, benchmarkPage, runForm, runPage, comparePage, modelPage, valueChart, METRICS,
     fmtScore, fmtUsd, fmtMs, fmtTokens, ordinal, benchmarkCard, render,
 };

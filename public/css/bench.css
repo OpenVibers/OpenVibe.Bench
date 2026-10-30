@@ -251,3 +251,16 @@ html, body { margin: 0; background: var(--bg-primary, #0a0f1c); color: var(--tex
 .sc-vote button { justify-self: start; min-height: 44px; padding: 0 20px; border: 0; border-radius: 999px; background: var(--room-fill); color: var(--room-on); font: inherit; font-weight: 750; cursor: pointer; }
 .sc-vote a { color: var(--room-strong); font-weight: 700; }
 .sc-empty { color: var(--text-muted, #7386a3); }
+
+/* The run form (B3): models, harnesses, how many times; large touch targets, nothing sideways on a phone */
+.br-form { display: grid; gap: 18px; margin-top: 8px; }
+.br-form fieldset { margin: 0; padding: 16px; border-radius: 16px; border: 1px solid var(--border, #1f2d47); background: var(--bg-card, #0f1729); display: grid; gap: 12px; min-width: 0; }
+.br-form legend { padding: 0 6px; font-weight: 800; }
+.br-checks { display: flex; flex-wrap: wrap; gap: 8px; }
+.br-check { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--border, #1f2d47); cursor: pointer; font-weight: 650; max-width: 100%; overflow-wrap: anywhere; }
+.br-check:has(input:checked) { border-color: var(--room-accent); background: color-mix(in srgb, var(--room-accent) 14%, transparent); }
+.br-check input { accent-color: var(--room-accent); }
+.br-field { display: grid; gap: 6px; font-size: .9rem; color: var(--text-secondary, #96a7c2); }
+.br-field input, .br-field select { min-height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--border, #1f2d47); background: var(--bg-input, var(--bg-primary, #0a0f1c)); color: var(--text-primary, #e6edf7); font: inherit; max-width: 100%; }
+.br-field input:focus-visible, .br-field select:focus-visible { outline: 2px solid var(--room-accent); outline-offset: 1px; }
+.br-form + .br-fine { margin-top: 16px; }

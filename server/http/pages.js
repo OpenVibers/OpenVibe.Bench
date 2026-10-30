@@ -7,6 +7,7 @@
 const express = require('express');
 const seo = require('openvibe-shared/seo');
 const { asyncRouter } = require('./router');
+const { sameOrigin } = require('./same-origin');
 const { createDiscoveryRoutes, homeJsonLd } = require('./discovery');
 const { raw } = require('../render/html');
 const { send } = require('../render/layout');
@@ -107,6 +108,39 @@ function createPageRoutes(ctx) {
                 rankings, metric, runs, codesRunUrl: config.codesRunUrl || null,
             }))),
         });
+    });
+
+    // The run form (B3): GET shows it, POST starts the run through the same launcher as the API.
+    const runFormPage = async (req, res, extra = {}) => {
+        const ref = String(req.params.ref || '');
+        const out = await registry.getDefinition(ref, { reveal: false });
+        if (!out || out.benchmark.visibility === 'private') return notFound(req, res, 'benchmark');
+        if (!config.codesRunUrl) return res.redirect(303, `/benchmarks/${encodeURIComponent(out.benchmark.id)}`);
+        const signedIn = req.viewer && req.viewer.kind === 'user';
+        return page(req, res, {
+            index: false, title: `Run ${out.benchmark.title}`,
+            description: `Run ${out.benchmark.title} on openvibe.codes with your own keys.`,
+            body: raw(String(results.runForm({
+                benchmark: out.benchmark, definition: out.definition, version: out.version && out.version.version, signedIn,
+                harnesses: signedIn ? await ctx.launcher.harnessList() : [],
+                suggested: signedIn ? (((await registry.rankings({ benchmark: out.benchmark.id, metric: 'score' })) || {}).entries || []).map((e) => e.model) : [],
+                loginUrl: `/auth/login?next=${encodeURIComponent(req.originalUrl)}`, ...extra,
+            }))),
+        }, extra.status || 200);
+    };
+    r.get('/benchmarks/:ref/run', (req, res) => runFormPage(req, res));
+    r.post('/benchmarks/:ref/run', express.urlencoded({ extended: false, limit: '16kb' }), ctx.principal.middleware, async (req, res) => {
+        if (!sameOrigin(req, config)) return res.status(403).type('text').send('This form only works from Bench itself.');
+        const b = req.body || {};
+        const list = (v) => (Array.isArray(v) ? v : v ? [v] : []);
+        const models = [...list(b.models), ...String(b.more_models || '').split(',')].map((x) => x.trim()).filter(Boolean);
+        const harnesses = list(b.harnesses);
+        const repeat = Number(b.repeat || 1);
+        const picked = { models, harnesses, repeat };
+        const out = await ctx.launcher.launch({ principal: req.principal, id: req.params.ref, models, harnesses, repeat, confirm: b.confirm === '1' });
+        if (out.status === 202) return res.redirect(303, out.body.tasks_url || config.codesRunUrl);
+        if (out.status === 409) return runFormPage(req, res, { picked, confirm: out.body.cost_estimate_usd == null ? 'unknown' : out.body.cost_estimate_usd });
+        return runFormPage(req, res, { picked, error: out.body.detail || 'The run could not start.', status: out.status === 400 ? 400 : 200 });
     });
 
     r.get('/runs/:id', async (req, res) => {

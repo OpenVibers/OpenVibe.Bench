@@ -31,6 +31,7 @@ const { createShowcaseRoutes, createShowcasePages } = require('./http/showcase')
 const { createRenderRoutes } = require('./http/render');
 const { seedShowcaseTasks } = require('./bench/seed-tasks');
 const { createRegistry } = require('./bench/registry');
+const { createLauncher } = require('./bench/launch');
 const { seedBenchmarks } = require('./bench/seed-benchmarks');
 const { createServiceReadiness } = require('./observability');
 const { assetVersion, send } = require('./render/layout');
@@ -78,8 +79,9 @@ async function createApp(opts = {}) {
         ? createNetworkSender({ networkInternalUrl: config.networkInternalUrl, clientId: config.oauth.clientId, clientSecret: config.oauth.clientSecret, fetch: fetchImpl })
         : async () => { throw new Error('OV_OAUTH_CLIENT_SECRET is not set: Bench cannot answer account events'); });
 
+    const launcher = createLauncher({ config, registry, fetchImpl: fetchImpl || globalThis.fetch, log });
     const ctx = {
-        config, s, keys, sso, principal, bench, registry, ai, jobs, publisher, accountData, accountSend, log, fetchImpl,
+        config, s, keys, sso, principal, bench, registry, launcher, ai, jobs, publisher, accountData, accountSend, log, fetchImpl,
         random: opts.random || Math.random,
     };
 
