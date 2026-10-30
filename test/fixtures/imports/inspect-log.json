@@ -1,0 +1,31 @@
+{
+  "version": "0.3.286",
+  "status": "success",
+  "eval": {
+    "task": "mmlu",
+    "task_version": "1",
+    "dataset": { "samples": [1, 2, 3] },
+    "model": "openai/gpt-4o",
+    "model_api": "openai",
+    "created": "2026-10-01T10:00:00Z"
+  },
+  "results": {
+    "total_samples": 3,
+    "completed_samples": 3,
+    "scores": [
+      { "name": "accuracy", "scorer": "choice", "metrics": { "accuracy": { "value": 0.6666666666666666, "stderr": 0.1 } } }
+    ]
+  },
+  "stats": {
+    "started_at": "2026-10-01T10:00:00Z",
+    "completed_at": "2026-10-01T10:05:00Z",
+    "model_usage": { "openai/gpt-4o": { "input_tokens": 1200, "output_tokens": 300, "total_tokens": 1500, "cost": 0.42 } }
+  },
+  "reductions": {
+    "samples": [
+      { "sample_id": 1, "value": 1 },
+      { "sample_id": 2, "value": 0 },
+      { "sample_id": 3, "value": 1 }
+    ]
+  }
+}

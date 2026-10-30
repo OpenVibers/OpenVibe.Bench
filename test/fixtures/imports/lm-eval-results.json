@@ -1,0 +1,17 @@
+{
+  "results": {
+    "mmlu": {
+      "alias": "mmlu",
+      "acc,none": 0.6052631578947368,
+      "acc_stderr,none": 0.0044,
+      "acc_by_task": { "abstract_algebra": 0.25, "anatomy": 0.5 }
+    }
+  },
+  "configs": {
+    "mmlu": { "model": "hf", "model_args": { "model_name": "meta-llama/Llama-3-8B" }, "batch_size": 1, "device": "cpu" }
+  },
+  "versions": { "mmlu": 1 },
+  "n-shot": { "mmlu": 0 },
+  "higher_is_better": { "acc,none": true },
+  "config": { "model": "hf", "batch_size": 1 }
+}

@@ -35,6 +35,8 @@ const TABLES = [
     // The runs they submitted and the benchmarks they watch: theirs, so they go.
     { table: 'bench_runs', subject: 'created_by', file: 'bench_runs.json', erase: 'delete' },
     { table: 'bench_watches', subject: 'subject', file: 'bench_watches.json', erase: 'delete' },
+    // The results files they brought (B12): theirs, so they go with them. The bytes hang off the row and go with it.
+    { table: 'bench_imports', subject: 'owner', file: 'bench_imports.json', erase: 'delete' },
 ];
 
 // The tables the map cannot say on its own: a benchmark and its versions are theirs, but other people's runs hang
@@ -59,6 +61,11 @@ async function extraExport(db, subject) {
              AND (visibility = 'private' OR tags @> '["your-prompts"]'::jsonb))
         ORDER BY created_at DESC LIMIT 5000`, [subject]);
     if (runs.length) files.push({ name: 'benchmark_runs.json', content: runs });
+    // The files they uploaded: the bytes are theirs too, so the export carries them.
+    const uploads = await db.many(`SELECT f.import_id, i.filename, i.sha256, i.size, encode(f.content, 'base64') AS content_base64
+        FROM bench_import_files f JOIN bench_imports i ON i.id = f.import_id
+        WHERE i.owner = $1 OR i.created_by = $1 ORDER BY i.created_at DESC LIMIT 5000`, [subject]);
+    if (uploads.length) files.push({ name: 'import_files.json', content: uploads });
     return files;
 }
 
