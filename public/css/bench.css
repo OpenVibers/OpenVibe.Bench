@@ -366,10 +366,30 @@ html, body { margin: 0; background: var(--bg-primary, #0a0f1c); color: var(--tex
 .pk-form label { display: grid; gap: 6px; font-size: .8rem; font-weight: 800; color: var(--text-secondary); }
 .pk-form select, .pk-form input[type="text"] { min-height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); font: inherit; font-size: .95rem; font-weight: 500; width: 100%; }
 .pk-form select:focus-visible, .pk-form input:focus-visible { outline: 2px solid var(--room-accent); outline-offset: 2px; }
-.pk-check { display: flex; flex-direction: row; align-items: center; gap: 10px; min-height: 44px; }
-.pk-check input { width: 20px; height: 20px; accent-color: var(--room-accent); }
-.pk-words input { font-weight: 500; }
-.pk-notes { margin: 4px 0 0; }
+.pk-controls { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto auto; align-items: end; gap: 12px; }
+.pk-controls .bm-btn { min-height: 44px; padding: 0 26px; }
+.pk-form label.pk-check { display: flex; flex-direction: row; align-items: center; gap: 9px; min-height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); font-size: .95rem; font-weight: 600; cursor: pointer; }
+.pk-check input { width: 20px; height: 20px; margin: 0; accent-color: var(--room-accent); }
+.pk-words input { min-height: 50px; font-size: 1.05rem; font-weight: 500; }
+.pk-hint { margin: 0; font-size: .82rem; color: var(--text-muted); }
+.pk-read { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 0; }
+.pk-chip { display: inline-flex; align-items: center; min-height: 28px; padding: 0 11px; border-radius: 999px; font-size: .85rem; font-weight: 700; color: var(--room-strong); background: color-mix(in srgb, var(--room-accent) 12%, transparent); border: 1px solid color-mix(in srgb, var(--room-accent) 28%, transparent); }
+@media (max-width: 720px) { .pk-controls { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .pk-controls .bm-btn { grid-column: 1 / -1; } }
+@media (max-width: 420px) { .pk-controls { grid-template-columns: minmax(0, 1fr); } }
+/* The frontier on a phone: each row is two lines, the model and its score, then its numbers with their names. */
+@media (max-width: 560px) {
+  .pk-table, .pk-table tbody { display: block; width: 100%; }
+  .pk-table thead { display: none; }
+  .pk-table tr { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; padding: 11px 14px; border-bottom: 1px solid var(--border); }
+  .pk-table tbody tr:last-child { border-bottom: 0; }
+  .pk-table td { display: block; padding: 0; border: 0; min-width: 0; width: auto; white-space: normal; }
+  .pk-table td.pk-c-model { flex: 1 1 auto; order: 1; }
+  .pk-table td.pk-c-score { flex: none; order: 1; text-align: right; }
+  .pk-table tr::after { content: ""; flex-basis: 100%; height: 0; order: 2; }
+  .pk-table td.br-num { flex: none; order: 3; text-align: left; font-size: .88rem; color: var(--text-secondary); }
+  .pk-table td.br-num::after { content: " " attr(data-label); color: var(--text-muted); }
+  .pk-table td .pk-thin-note { display: none; }
+}
 .pk-why { margin: 10px 0 14px; padding: 12px 14px; border-radius: 14px; background: color-mix(in srgb, var(--room-accent) 12%, transparent); border: 1px solid color-mix(in srgb, var(--room-accent) 30%, transparent); font-weight: 600; line-height: 1.55; }
 .pk-table td, .pk-table th { white-space: nowrap; }
 .pk-score { font-weight: 800; }

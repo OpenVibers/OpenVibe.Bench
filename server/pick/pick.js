@@ -91,7 +91,9 @@ function whySentence(rows, kindName) {
     const head = top.model + ' is first on ' + kindName + ' because no other model beats it on both score and cost per solved task: '
         + 'it scores ' + top.score + ' at ' + cents(top.cost_per_solved) + ' a solved task';
     if (!rivals.length) return head + ', and it is the only model with enough data to stand on.';
-    const rival = rivals[0];
+    // A rival is compared only when its runs can carry a number: a greyed one is too thin to say "lower" about.
+    const rival = rivals.find((r) => !r.thin);
+    if (!rival) return head + '. No other model has enough runs to compare with it yet.';
     const lower = rival.score < top.score
         ? 'scores lower (' + rival.score + ')'
         : 'costs more (' + cents(rival.cost_per_solved) + ')';
