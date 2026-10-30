@@ -23,7 +23,9 @@ const NAV = [
     { label: 'Showcase', href: '/showcase' },
     { label: 'Gallery', href: '/gallery' },
     { label: 'Battles', href: '/battle' },
+    { label: 'Pick for me', href: '/pick' },
     { label: 'Ratings', href: '/ratings' },
+    { label: 'Watching', href: '/watching' },
     { label: 'Docs', href: '/docs' },
 ];
 

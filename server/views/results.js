@@ -7,6 +7,7 @@
  * Ids and classes start with `br-`.
  */
 const { html, raw, render } = require('../render/html');
+const { benchmarkUseThis, modelUseThis } = require('./usethis');
 const renderLib = require('../bench/render');
 
 const MEDIA_ORIGIN = 'https://openvibe.media';
@@ -201,7 +202,7 @@ function benchmarkCard(b) {
     return html`<li class="br-card"><a class="br-card-link" href="${benchmarkHref(b.id)}"><span class="br-card-top">${kindChip(b.kind)}<span class="br-card-v">v${b.latest_version || 0}</span></span><span class="br-card-title">${b.title}</span><span class="br-card-desc">${b.description}</span><span class="br-card-foot">${plural(tasks, 'task')}${b.runs != null ? html` · ${plural(b.runs, 'run')}` : ''}${b.parent ? ' · a fork' : ''}</span></a></li>`;
 }
 
-function benchmarkPage({ benchmark, definition, version, rankings, metric = 'score', runs = [], codesRunUrl = null }) {
+function benchmarkPage({ benchmark, definition, version, rankings, metric = 'score', runs = [], codesRunUrl = null, viewer = null, baseUrl = '' }) {
     const d = definition || {};
     const tasks = Array.isArray(d.tasks) ? d.tasks : [];
     const shown = tasks.filter((t) => !t.holdout && t.prompt);
@@ -227,6 +228,7 @@ ${entries.length ? rankingsTable(entries, metric) : empty('No verified runs yet'
 <ol class="br-tasks">${shown.map((t) => html`<li class="br-task"><span class="br-task-id br-mono">${t.id}</span><p>${t.prompt}</p></li>`)}${hidden ? html`<li class="br-task is-hidden"><span class="br-task-id br-mono">${plural(hidden, 'task')}</span><p>Held out: only the executor sees ${hidden === 1 ? 'it' : 'them'}, so nobody can tune for the answer.</p></li>` : ''}</ol></section>
 <section class="bm-section" aria-labelledby="br-latest-h"><div class="bm-head-row"><h2 id="br-latest-h">Latest runs</h2>${runs.length > 1 ? html`<a class="bm-more" href="${compareHref(runs.slice(0, 2).map((r) => r.id))}">Compare the newest two</a>` : ''}</div>
 ${runs.length ? runsList(runs) : empty('No runs yet', 'The first run shows up here, verified or submitted.')}</section>
+${benchmarkUseThis({ baseUrl, benchmark, entries, viewer })}
 <p class="br-fine br-api">The same data as JSON: <a href="/api/v1/benchmarks/${encodeURIComponent(benchmark.id)}">definition</a> · <a href="/api/v1/rankings?benchmark=${encodeURIComponent(benchmark.id)}&amp;metric=${metric}">rankings</a></p>
 </div>`;
 }
@@ -322,7 +324,7 @@ ${rows.some((row) => runs.some((r) => ((r.tasks.find((t) => t.task_id === row.ta
 </div>`;
 }
 
-function modelPage({ model, summary, runs = [], titles = {} }) {
+function modelPage({ model, summary, runs = [], titles = {}, viewer = null, baseUrl = '' }) {
     const rows = (summary && summary.benchmarks) || [];
     return html`<div class="bm-wrap br" id="br-model">
 <nav class="br-crumbs" aria-label="Breadcrumb"><a href="/benchmarks">Benchmarks</a><span aria-hidden="true">/</span><span>Models</span></nav>
@@ -330,6 +332,7 @@ function modelPage({ model, summary, runs = [], titles = {} }) {
 <section class="bm-section" aria-labelledby="br-mb-h"><h2 id="br-mb-h">By benchmark</h2>
 ${rows.length ? html`<div class="br-table-wrap"><table class="br-table"><thead><tr><th scope="col">Benchmark</th><th scope="col">Median</th><th scope="col" class="br-num">Spread</th><th scope="col" class="br-num">Cost / run</th><th scope="col" class="br-num">Time</th><th scope="col" class="br-num">Runs</th></tr></thead><tbody>${rows.map((b) => html`<tr><td><a href="${benchmarkHref(b.benchmark_id)}">${b.title}</a> ${kindChip(b.kind)}</td><td>${scoreBar(b.score)}</td><td class="br-num">${b.runs > 1 ? `${fmtScore(b.worst)}–${fmtScore(b.best)}` : '—'}</td><td class="br-num">${fmtUsd(b.cost_usd)}</td><td class="br-num">${fmtMs(b.ms)}</td><td class="br-num">${b.runs}</td></tr>`)}</tbody></table></div>` : empty('Nothing measured yet', 'This model shows up here after its first verified run.', html`<a class="bm-btn bm-btn-small" href="/benchmarks">Pick a benchmark</a>`)}</section>
 ${runs.length ? html`<section class="bm-section" aria-labelledby="br-mr-h"><h2 id="br-mr-h">Latest runs</h2>${runsList(runs, { showBenchmark: true, titles })}</section>` : ''}
+${modelUseThis({ baseUrl, model, rows, viewer })}
 </div>`;
 }
 

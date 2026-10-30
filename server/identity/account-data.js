@@ -12,6 +12,7 @@ const TABLES = [
     { table: 'bench_rounds', subject: 'created_by', file: 'bench_rounds.json', erase: 'delete' },
     { table: 'bench_tasks', subject: 'created_by', file: 'bench_tasks.json', erase: 'delete' },
     { table: 'bench_evals', subject: 'owner', file: 'bench_evals.json', erase: 'delete' },
+    { table: 'bench_watches', subject: 'subject', file: 'bench_watches.json', erase: 'delete' },
 ];
 
 function create({ db, log = console } = {}) {

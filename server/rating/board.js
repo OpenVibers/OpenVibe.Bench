@@ -68,6 +68,7 @@ function gamesOf(votes) {
 }
 
 let cached = null;
+const kindCache = new Map();
 
 /** The board, with the fit and the per-vote weights. Cached on the shape of the vote set. */
 async function board(ctx, { bootstrap = style.BOOTSTRAP, force = false } = {}) {
@@ -81,6 +82,22 @@ async function board(ctx, { bootstrap = style.BOOTSTRAP, force = false } = {}) {
     const enriched = votes.map((v) => ({ ...v, weight: weights.has(v.id) ? weights.get(v.id) : 1 }));
     const value = { fit, votes: enriched, generated_at: new Date().toISOString() };
     cached = { key, at: Date.now(), value };
+    return value;
+}
+
+/**
+ * The board of one kind: the votes of that kind alone, fitted the same way as the whole board. A pick and a watch both
+ * ask about one kind at a time, and the band a model sits in there is the band that kind gives it.
+ */
+async function boardForKind(ctx, kindId, { bootstrap = style.BOOTSTRAP, force = false } = {}) {
+    const db = ctx.s.db;
+    const votes = (await loadVotes(db)).filter((v) => String(v.kind_id) === String(kindId));
+    const key = String(kindId) + ':' + votes.length + ':' + (votes.length ? votes[votes.length - 1].id : '') + ':' + num(bootstrap);
+    const hit = kindCache.get(String(kindId));
+    if (!force && hit && hit.key === key && Date.now() - hit.at < 5 * 60_000) return hit.value;
+    const fit = style.fitRatings(gamesOf(votes), { bootstrap });
+    const value = { fit, votes, generated_at: new Date().toISOString() };
+    kindCache.set(String(kindId), { key, at: Date.now(), value });
     return value;
 }
 
@@ -120,4 +137,4 @@ function boardView(result) {
     };
 }
 
-module.exports = { loadVotes, gamesOf, board, dumpJsonl, boardView, styleOf };
+module.exports = { loadVotes, gamesOf, board, boardForKind, dumpJsonl, boardView, styleOf };

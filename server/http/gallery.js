@@ -200,4 +200,4 @@ function createGalleryPages(ctx) {
     return r;
 }
 
-module.exports = { createGalleryRoutes, createGalleryPages, loadGallery, facets, LIVE_FRAMES };
+module.exports = { createGalleryRoutes, createGalleryPages, loadGallery, facets, frame, card, screenshotOf, LIVE_FRAMES };

@@ -29,6 +29,12 @@ const { createRegistryApi } = require('./http/registry');
 const { createPageRoutes } = require('./http/pages');
 const { createShowcaseRoutes, createShowcasePages } = require('./http/showcase');
 const { createGalleryRoutes, createGalleryPages } = require('./http/gallery');
+const { createPickPages, createPickRoutes } = require('./http/pick');
+const { createBadgeRoutes } = require('./http/badge');
+const { createEmbedRoutes } = require('./http/embed');
+const { createWatchPages } = require('./http/watch');
+const { createWatches } = require('./watch/watch');
+const { createBattles } = require('./bench/battles');
 const { createBattlePages } = require('./http/battle');
 const { createRatingsPages } = require('./http/ratings');
 const { createRenderRoutes } = require('./http/render');
@@ -98,6 +104,15 @@ async function createApp(opts = {}) {
     ctx.telemetry = createHttpTelemetry({ service: 'bench', sink: opts.telemetrySink || createPgTelemetrySink({ db: s.db, log }), skipPrefixes: ['/shared'], intervalMs: 60_000 });
     app.use(ctx.telemetry.middleware());
     app.locals.ctx = ctx;
+    ctx.watches = createWatches(ctx);
+    ctx.battles = createBattles(ctx);
+    // Where the ratings are refitted, the watches are checked: a score that moved by more than its own interval, or
+    // a model that overtook another one, is worth one notice.
+    s.onRatingsChanged = async (kindId, models) => {
+        try { await ctx.watches.check(kindId, { models }); } catch (err) {
+            log.warn('[OpenVibe.Bench] watch check failed: ' + (err && err.message ? err.message : err));
+        }
+    };
 
     const valkey = opts.valkey !== undefined ? opts.valkey : (config.valkey.url ? require('openvibe-sdk/valkey').createValkey({ url: config.valkey.url, prefix: config.valkey.prefix, log }) : null);
     ctx.valkey = valkey;
@@ -124,6 +139,9 @@ async function createApp(opts = {}) {
         crossOriginResourcePolicy: { policy: 'same-site' },
         referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
     }));
+    // ── Badges and embeds: no session, no cookies, before the cookie parser ──
+    app.use('/badge', createBadgeRoutes(ctx));
+    app.use('/embed', createEmbedRoutes(ctx));
     app.use(cookieParser());
 
     // ── Machine endpoints ───────────────────────────────────
@@ -164,6 +182,7 @@ async function createApp(opts = {}) {
     app.use('/api/v1', createRegistryApi(ctx));
     app.use('/api/v1/showcase', createShowcaseRoutes(ctx));
     app.use('/api/v1/gallery', createGalleryRoutes(ctx));
+    app.use('/api/v1', createPickRoutes(ctx));
     app.use(mcpRouter(ctx));
     app.use('/api', (req, res) => contracts.http.sendProblem(res, 404, 'route.not_found', { detail: 'No such API route', ctx: req.ov }));
 
@@ -181,6 +200,8 @@ async function createApp(opts = {}) {
     app.use('/vendor', require('./http/vendor').createVendorRoutes());
     app.use('/showcase', createShowcasePages(ctx));
     app.use('/gallery', createGalleryPages(ctx));
+    app.use('/pick', createPickPages(ctx));
+    app.use(createWatchPages(ctx));
     app.use('/battle', createBattlePages(ctx));
     app.use('/ratings', createRatingsPages(ctx));
     app.use(createPageRoutes(ctx));

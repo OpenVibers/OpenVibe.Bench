@@ -105,7 +105,7 @@ function createPageRoutes(ctx) {
             jsonLd: [seo.jsonLd.webPage({ name: out.benchmark.title, url: `${base()}/benchmarks/${encodeURIComponent(id)}`, description: out.benchmark.description || out.benchmark.title, siteUrl: base() })],
             body: raw(String(results.benchmarkPage({
                 benchmark: out.benchmark, definition: out.definition, version: out.version && out.version.version,
-                rankings, metric, runs, codesRunUrl: config.codesRunUrl || null,
+                rankings, metric, runs, codesRunUrl: config.codesRunUrl || null, viewer: req.viewer, baseUrl: base(),
             }))),
         });
     });
@@ -197,7 +197,7 @@ function createPageRoutes(ctx) {
             index: summary.runs > 0, cache: PUBLIC_CACHE,
             title: model,
             description: `${model} across OpenVibe.Bench: its median score, spread, cost and time on every benchmark it ran.`,
-            body: raw(String(results.modelPage({ model, summary, runs, titles }))),
+            body: raw(String(results.modelPage({ model, summary, runs, titles, viewer: req.viewer, baseUrl: base() }))),
         }, summary.runs > 0 || runs.length ? 200 : 404);
     });
 
