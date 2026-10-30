@@ -25,6 +25,8 @@ function load(env = process.env) {
         nodeEnv,
         isProduction,
         baseUrl,
+        // "Run it yourself" on a benchmark page opens this openvibe.codes page (stage B3); unset, the page offers the API.
+        codesRunUrl: env.CODES_BENCH_RUN_URL ? trim(env.CODES_BENCH_RUN_URL) : null,
         trustProxy: env.TRUST_PROXY != null ? Number(env.TRUST_PROXY) : 2,
         drill: env.BENCH_DRILL === '1' || env.BENCH_DRILL === 'true',
         limits: {

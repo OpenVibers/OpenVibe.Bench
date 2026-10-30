@@ -135,7 +135,10 @@ function createRegistryApi(ctx) {
 
     r.get('/benchmarks', async (req, res) => {
         try {
+            // ?mine=1 adds the caller's own unlisted and private benchmarks; nobody else ever sees those in a list.
+            const mine = req.query.mine && req.principal && req.principal.kind === 'user' ? req.principal.subject : null;
             const list = await registry.listBenchmarks({
+                owner: mine,
                 kind: req.query.kind ? String(req.query.kind) : null,
                 tag: req.query.tag ? String(req.query.tag) : null,
                 q: req.query.q ? String(req.query.q) : null,
@@ -157,7 +160,9 @@ function createRegistryApi(ctx) {
             }
             const out = await registry.getDefinition(ref, { reveal });
             if (!out) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
-            res.set('Cache-Control', 'public, max-age=60');
+            // A private benchmark answers only its owner and the executor; to everyone else it does not exist.
+            if (out.benchmark.visibility === 'private' && !reveal) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
+            res.set('Cache-Control', out.benchmark.visibility === 'public' ? 'public, max-age=60' : 'private, no-store');
             return res.json({
                 benchmark: out.benchmark,
                 version: { ...out.version, definition: out.definition },

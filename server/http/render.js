@@ -45,7 +45,7 @@ function createRenderRoutes(ctx) {
     function bare(res) {
         res.removeHeader('Set-Cookie');
         res.removeHeader('X-Frame-Options');   // helmet's DENY; frame-ancestors in each response's CSP names who may frame it
-        res.set('Cache-Control', 'no-store');
+        res.set('Cache-Control', 'no-store, no-transform');   // no-transform: Cloudflare injects no analytics beacon (the frame's CSP refuses it)
         res.set('X-Content-Type-Options', 'nosniff');
         res.set('Referrer-Policy', 'no-referrer');
         return res;

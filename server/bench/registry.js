@@ -320,9 +320,16 @@ function createRegistry(s, { log = console } = {}) {
     }
 
     /** The registry list: by kind, by tag, or by a search over the title and the description. */
-    async function listBenchmarks({ kind = null, tag = null, q = null, limit = 50 } = {}) {
+    /**
+     * Benchmarks for a listing: the public ones, plus every one the `owner` owns when one is named. Unlisted and
+     * private benchmarks are never listed to anyone else (an unlisted one is reachable by its id; a private one only
+     * by its owner and the executor).
+     */
+    async function listBenchmarks({ kind = null, tag = null, q = null, limit = 50, owner = null } = {}) {
         const where = [];
         const params = [];
+        if (owner) { params.push(String(owner)); where.push(`(visibility = 'public' OR owner = $${params.length})`); }
+        else where.push("visibility = 'public'");
         if (kind) { params.push(String(kind)); where.push(`kind = $${params.length}`); }
         if (tag) { params.push(JSON.stringify([String(tag)])); where.push(`tags @> $${params.length}::jsonb`); }
         if (q) {
@@ -465,8 +472,9 @@ function createRegistry(s, { log = console } = {}) {
         const params = [ref.id, wanted];
         let sql = `SELECT * FROM bench_runs WHERE benchmark_id = $1 AND benchmark_version = ANY($2::int[])`;
         if (!includeSubmitted) sql += " AND provenance = 'verified'";
-        if (harness) { params.push(JSON.stringify([String(harness)])); sql += ` AND harness->>'name' = $3`; }
-        if (since) { params.push(String(since)); sql += ' AND created_at >= $4::timestamptz'; }
+        // Each filter takes the next placeholder: `since` alone is $3, not $4.
+        if (harness) { params.push(String(harness)); sql += ` AND harness->>'name' = $${params.length}`; }
+        if (since) { params.push(String(since)); sql += ` AND created_at >= $${params.length}::timestamptz`; }
         const rows = await db.many(sql, params);
         const byModel = new Map();
         for (const row of rows) {
@@ -544,9 +552,76 @@ function createRegistry(s, { log = console } = {}) {
         };
     }
 
+    /**
+     * Runs, newest first, for the pages: a benchmark's latest runs, a model's, or one person's. Without tasks: a list
+     * row needs the totals only. Submitted runs are listed (and labelled) unless `verifiedOnly`.
+     */
+    /** How many runs each benchmark has, verified and submitted: the listing's counts. */
+    async function runCounts() {
+        const rows = await db.many('SELECT benchmark_id, COUNT(*)::int AS n FROM bench_runs GROUP BY benchmark_id');
+        return new Map(rows.map((r) => [r.benchmark_id, num(r.n)]));
+    }
+
+    async function listRuns({ benchmark = null, model = null, createdBy = null, verifiedOnly = false, publicOnly = false, limit = 20 } = {}) {
+        const where = [];
+        const params = [];
+        const add = (clause, value) => { params.push(value); where.push(clause.replace('?', `$${params.length}`)); };
+        if (benchmark) {
+            const ref = parseRef(benchmark);
+            if (!ref) return [];
+            add('benchmark_id = ?', ref.id);
+            if (ref.version != null) add('benchmark_version = ?', ref.version);
+        }
+        if (model) add('model = ?', String(model));
+        if (createdBy) add('created_by = ?', String(createdBy));
+        if (verifiedOnly) where.push("provenance = 'verified'");
+        // A listing across benchmarks (a model's page) shows the public benchmarks' runs only.
+        if (publicOnly) where.push("benchmark_id IN (SELECT id FROM bench_benchmarks WHERE visibility = 'public')");
+        params.push(Math.min(100, Math.max(1, Number(limit) || 20)));
+        const rows = await db.many(
+            `SELECT * FROM bench_runs ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY created_at DESC, id DESC LIMIT $${params.length}`,
+            params);
+        return rows.map((row) => wireRun(row));
+    }
+
+    /**
+     * One model across every public benchmark it ran: per benchmark, its verified runs, the median score, cost and time, and
+     * the spread between its best and worst run. The model page reads this.
+     */
+    async function modelSummary(model) {
+        const rows = await db.many(
+            "SELECT benchmark_id, score, cost_usd, ms FROM bench_runs WHERE model = $1 AND provenance = 'verified'"
+            + " AND benchmark_id IN (SELECT id FROM bench_benchmarks WHERE visibility = 'public')",
+            [String(model || '')]);
+        const byBenchmark = new Map();
+        for (const row of rows) {
+            if (!byBenchmark.has(row.benchmark_id)) byBenchmark.set(row.benchmark_id, []);
+            byBenchmark.get(row.benchmark_id).push(row);
+        }
+        const round = (v, p) => (v == null ? null : Math.round(v * p) / p);
+        const out = [];
+        for (const [benchmarkId, list] of byBenchmark) {
+            const scores = list.map((r) => num(r.score));
+            const b = await getBenchmark(benchmarkId);
+            out.push({
+                benchmark_id: benchmarkId,
+                title: b ? b.title : benchmarkId,
+                kind: b ? b.kind : null,
+                runs: list.length,
+                score: round(median(scores), 1000),
+                best: Math.max(...scores),
+                worst: Math.min(...scores),
+                cost_usd: round(median(list.map((r) => num(r.cost_usd))), 1e6),
+                ms: round(median(list.map((r) => num(r.ms))), 1),
+            });
+        }
+        out.sort((a, b) => b.runs - a.runs || a.title.localeCompare(b.title));
+        return { model: String(model || ''), runs: rows.length, benchmarks: out };
+    }
+
     return {
         createBenchmark, getBenchmark, getVersion, latestVersion, getDefinition, saveDraft, freezeVersion,
-        forkBenchmark, listBenchmarks, publishRun, getRun, compareRuns, rankings, percentile,
+        forkBenchmark, listBenchmarks, publishRun, getRun, compareRuns, rankings, percentile, listRuns, modelSummary, runCounts,
     };
 }
 
