@@ -1,0 +1,25 @@
+{
+  "id": "0f1c9a52-0000-4000-8000-000000000001",
+  "started_at": "2026-10-02T09:00:00Z",
+  "finished_at": "2026-10-02T09:10:00Z",
+  "n_total_trials": 2,
+  "stats": { "n_completed_trials": 2, "cost_usd": 0.31 },
+  "trial_results": [
+    {
+      "id": "trial-1",
+      "task_name": "write-a-python-parser",
+      "task_id": "task-parser",
+      "agent_info": { "name": "claude-code", "version": "1.2.3", "model_info": { "name": "claude-sonnet-4", "provider": "anthropic" } },
+      "verifier_result": { "reward": 1.0 },
+      "cost_usd": 0.2
+    },
+    {
+      "id": "trial-2",
+      "task_name": "fix-the-failing-test",
+      "task_id": "task-test",
+      "agent_info": { "name": "claude-code", "version": "1.2.3", "model_info": { "name": "claude-sonnet-4", "provider": "anthropic" } },
+      "verifier_result": { "reward": 0.0 },
+      "cost_usd": 0.11
+    }
+  ]
+}

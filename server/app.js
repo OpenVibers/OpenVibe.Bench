@@ -75,6 +75,9 @@ async function createApp(opts = {}) {
 
     const bench = opts.bench || createStore(s, { config, log, random: opts.random });
     const registry = opts.registry || createRegistry(s, { log });
+    // B12: bringing your own results, and the operator's mirror.
+    const imports = require('./bench/imports').createImports({ s, registry, log });
+    const mirror = require('./bench/mirror').createMirror({ s, registry, fetchImpl, log });
     const ai = opts.benchAi || createBenchAi({ config, fetchImpl, log });
     const jobs = createBenchJobs({ s, bench, ai, config, log });
     const publisher = createPublisher({ config, s, fetchImpl, log });
@@ -91,6 +94,7 @@ async function createApp(opts = {}) {
     const launcher = createLauncher({ config, registry, fetchImpl: fetchImpl || globalThis.fetch, log });
     const ctx = {
         config, s, keys, sso, principal, bench, registry, launcher, ai, jobs, publisher, accountData, accountSend, log, fetchImpl,
+        imports, mirror,
         random: opts.random || Math.random,
     };
 
@@ -183,6 +187,7 @@ async function createApp(opts = {}) {
     app.use('/api/v1/showcase', createShowcaseRoutes(ctx));
     app.use('/api/v1/gallery', createGalleryRoutes(ctx));
     app.use('/api/v1', createPickRoutes(ctx));
+    app.use(require('./http/mirror').createMirrorRoutes(ctx));
     app.use(mcpRouter(ctx));
     app.use('/api', (req, res) => contracts.http.sendProblem(res, 404, 'route.not_found', { detail: 'No such API route', ctx: req.ov }));
 
@@ -204,6 +209,7 @@ async function createApp(opts = {}) {
     app.use(createWatchPages(ctx));
     app.use('/battle', createBattlePages(ctx));
     app.use('/ratings', createRatingsPages(ctx));
+    app.use(require('./http/imports').createImportRoutes(ctx));
     app.use(createPageRoutes(ctx));
     app.use((req, res) => send(res, 404, {
         viewer: req.viewer, config, path: req.originalUrl, title: 'Not found',

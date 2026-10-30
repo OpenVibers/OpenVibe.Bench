@@ -137,6 +137,9 @@ function wireRun(row, tasks = null) {
         ms: num(row.ms),
         tokens: num(row.tokens),
         provenance: row.provenance,
+        // Where the run came from: an upload, or a mirror's source with its licence. It is Bench's own field:
+        // the published bench.run document closes its shape to the contract, so this sits beside it.
+        source: json(row.source, {}),
         session: row.session || null,
         created_by: row.created_by,
         created_at: iso(row.created_at),
@@ -520,11 +523,12 @@ function createRegistry(s, { log = console } = {}) {
         await db.tx(async () => {
             await db.exec(
                 `INSERT INTO bench_runs (id, benchmark_id, benchmark_version, model, route, provider, harness, settings, executor,
-                     hardware, score, cost_usd, ms, tokens, provenance, session, created_by, created_at)
-                 VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11, $12, $13, $14, $15, $16, $17, $18::timestamptz)`,
+                     hardware, score, cost_usd, ms, tokens, provenance, source, session, created_by, created_at)
+                 VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11, $12, $13, $14, $15, $16::jsonb, $17, $18, $19::timestamptz)`,
                 [id, benchmarkId, version, model, JSON.stringify(doc.route || {}), provider,
                     JSON.stringify(doc.harness || {}), JSON.stringify(doc.settings || {}), JSON.stringify(executor),
                     doc.hardware == null ? null : JSON.stringify(doc.hardware), score, cost, ms, tokens, provenance,
+                    JSON.stringify(doc.source || {}),
                     doc.session == null ? null : String(doc.session).slice(0, 120), String(subject || 'unknown'), s.iso()],
             );
             for (const t of tasks) {

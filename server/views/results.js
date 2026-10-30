@@ -56,10 +56,38 @@ const compareHref = (ids) => `/compare?runs=${ids.map(encodeURIComponent).join('
 
 const kindChip = (kind) => (kind ? html`<span class="br-chip br-mono">${kind}</span>` : '');
 
-function provenance(p) {
-    return p === 'verified'
+function provenance(p, source = null) {
+    const badge = p === 'verified'
         ? html`<span class="br-prov is-verified" title="Run by openvibe.codes, Run or a Node worker, and published by that service">Verified</span>`
         : html`<span class="br-prov is-submitted" title="Published by a person; nobody re-ran it">Submitted</span>`;
+    const kind = source && typeof source === 'object' ? source.kind : null;
+    if (kind === 'import') {
+        const tool = String(source.tool || 'a tool');
+        const version = String(source.tool_version || '');
+        return html`${badge}<span class="br-prov is-imported" title="Imported from ${tool} ${version}: the file was read, never re-run">Imported from ${tool}${version ? ' ' + version : ''}</span>`;
+    }
+    if (kind === 'mirror') {
+        const url = String(source.source_url || '');
+        const licence = String(source.licence || '');
+        return html`${badge}<span class="br-prov is-mirrored" title="Mirrored from ${url}${licence ? ' (' + licence + ')' : ''}: a published result, never re-run">Mirrored</span>`;
+    }
+    return badge;
+}
+
+/** Where a run came from, in a line of its own: an upload with its file, or a mirror with its source. */
+function sourceLine(run) {
+    const source = run && run.source && typeof run.source === 'object' ? run.source : null;
+    if (!source) return '';
+    if (source.kind === 'import') {
+        const tool = String(source.tool || 'a tool');
+        const version = String(source.tool_version || '');
+        const file = source.import_id ? html` · <a href="/imports/${encodeURIComponent(source.import_id)}/file">the original file</a>` : '';
+        return html`<p class="br-fine">Imported from ${tool}${version ? ' ' + version : ''}${source.date ? ' · the file says ' + fmtDate(source.date) : ''}. The original file is the owner's, and stays private until they share it${file}.</p>`;
+    }
+    if (source.kind === 'mirror') {
+        return html`<p class="br-fine">Mirrored from <a href="${String(source.source_url || '')}" rel="nofollow noopener">${String(source.source_url || 'the source')}</a>${source.licence ? ' · ' + source.licence : ''}${source.read_at ? ' · read ' + fmtDate(source.read_at) : ''}. A published result, never re-run here.</p>`;
+    }
+    return '';
 }
 
 /** A score out of 100 with a thin bar under it. */
@@ -201,7 +229,7 @@ ${publicEntries.length
 
 function runsList(runs, { showBenchmark = false, titles = {} } = {}) {
     if (!runs.length) return '';
-    return html`<ul class="br-runs">${runs.map((r) => html`<li class="br-run"><a class="br-run-link" href="${runHref(r.id)}"><span class="br-run-main"><span class="br-run-model">${r.model}</span><span class="br-run-sub">${showBenchmark ? html`${titles[r.benchmark_id] || r.benchmark_id} · ` : ''}${harnessLabel(r.harness)} · ${fmtDate(r.created_at)}</span></span>${scoreBar(r.score)}</a>${provenance(r.provenance)}</li>`)}</ul>`;
+    return html`<ul class="br-runs">${runs.map((r) => html`<li class="br-run"><a class="br-run-link" href="${runHref(r.id)}"><span class="br-run-main"><span class="br-run-model">${r.model}</span><span class="br-run-sub">${showBenchmark ? html`${titles[r.benchmark_id] || r.benchmark_id} · ` : ''}${harnessLabel(r.harness)} · ${fmtDate(r.created_at)}</span></span>${scoreBar(r.score)}</a>${provenance(r.provenance, r.source)}</li>`)}</ul>`;
 }
 
 // ---- outputs -------------------------------------------------------------------------------------------------
@@ -414,9 +442,10 @@ function runPage({ run, benchmark, definition, pct }) {
         : html`<p class="br-fine">Where it sits shows once ${run.model} has more verified runs here.</p>`;
     return html`<div class="bm-wrap br" id="br-run">
 <nav class="br-crumbs" aria-label="Breadcrumb"><a href="/benchmarks">Benchmarks</a><span aria-hidden="true">/</span><a href="${benchmarkHref(run.benchmark_id)}">${benchmark ? benchmark.title : run.benchmark_id}</a><span aria-hidden="true">/</span><span class="br-mono">${run.id}</span></nav>
-<header class="br-head br-run-head"><div class="br-head-main"><p class="br-head-meta">${provenance(run.provenance)}<span>${fmtDate(run.created_at)}</span></p><h1>${run.model}</h1><p class="bm-lede">on ${benchmark ? benchmark.title : run.benchmark_id}, through ${harnessLabel(run.harness)}</p></div>
+<header class="br-head br-run-head"><div class="br-head-main"><p class="br-head-meta">${provenance(run.provenance, run.source)}<span>${fmtDate(run.created_at)}</span></p><h1>${run.model}</h1><p class="bm-lede">on ${benchmark ? benchmark.title : run.benchmark_id}, through ${harnessLabel(run.harness)}</p></div>
 <div class="br-head-score">${scoreBar(run.score, { big: true })}<dl class="br-totals"><div><dt>Cost</dt><dd>${fmtUsd(run.cost_usd)}</dd></div><div><dt>Time</dt><dd>${fmtMs(run.ms)}</dd></div><div><dt>Tokens</dt><dd>${fmtTokens(run.tokens)}</dd></div></dl></div></header>
 ${pctLine}
+${sourceLine(run)}
 <section class="bm-section" aria-labelledby="br-env-h"><h2 id="br-env-h">Environment</h2><dl class="br-env">${env.map(([k, v]) => html`<div><dt>${k}</dt><dd>${v}</dd></div>`)}</dl></section>
 <section class="bm-section" aria-labelledby="br-pt-h"><div class="bm-head-row"><h2 id="br-pt-h">Tasks</h2><span class="bm-count">${(run.tasks || []).length}</span></div>
 ${(run.tasks || []).length ? html`<ol class="br-ptasks">${run.tasks.map((t) => {
@@ -438,7 +467,7 @@ function comparePage({ cmp, titles = {} }) {
     const line = (label, vals, f, hi = true) => { const b = best(vals, hi); return html`<tr><th scope="row">${label}</th>${vals.map((v) => cell(v, b, f))}</tr>`; };
     return html`<div class="bm-wrap br" id="br-compare">
 <header class="bm-page-h"><p class="bm-kicker">Compare</p><h1>${runs.map((r) => r.model).join(' vs ')}</h1><p class="bm-lede">${[...new Set(runs.map((r) => titles[r.benchmark_id] || r.benchmark_id))].join(', ')}. The best value in each row is marked.</p></header>
-<div class="br-table-wrap"><table class="br-table br-cmp"><thead><tr><th scope="col"><span class="br-sr">Measure</span></th>${runs.map((r) => html`<th scope="col"><a href="${runHref(r.id)}">${r.model}</a><span class="br-cmp-sub">${harnessLabel(r.harness)}</span>${provenance(r.provenance)}</th>`)}</tr></thead><tbody>
+<div class="br-table-wrap"><table class="br-table br-cmp"><thead><tr><th scope="col"><span class="br-sr">Measure</span></th>${runs.map((r) => html`<th scope="col"><a href="${runHref(r.id)}">${r.model}</a><span class="br-cmp-sub">${harnessLabel(r.harness)}</span>${provenance(r.provenance, r.source)}</th>`)}</tr></thead><tbody>
 ${line('Score', runs.map((r) => r.score), fmtScore)}${line('Cost', runs.map((r) => r.cost_usd), fmtUsd, false)}${line('Time', runs.map((r) => r.ms), fmtMs, false)}${line('Tokens', runs.map((r) => r.tokens), fmtTokens, false)}
 ${rows.map((row) => line(html`<span class="br-mono">${row.task_id}</span>`, row.scores, fmtScore))}
 </tbody></table></div>
