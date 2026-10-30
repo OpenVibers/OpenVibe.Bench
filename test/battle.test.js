@@ -96,6 +96,13 @@ const FORM = { 'content-type': 'application/x-www-form-urlencoded' };
         assert.strictEqual(page.status, 200, page.text);
         assert.ok(page.text.includes('Raw') && page.text.includes('Style controlled'), 'both columns');
         assert.ok(page.text.includes('alpha-'), 'a model on the board');
+        // The board is a table: a band, a model, the scores with their intervals on one scale, and the votes.
+        assert.ok(page.text.includes('class="br-table rt-table"'), 'the ranking table');
+        assert.ok(page.text.includes('>Band<') && page.text.includes('>Votes<'), 'the columns');
+        assert.ok(page.text.includes('class="rt-bar"'), 'the interval bar');
+        assert.ok(page.text.includes('rt-band'), 'the band');
+        // The style is explained in words, not as a number.
+        assert.ok(!page.text.includes('Elo per 1000 characters'), 'no raw effect numbers: ' + page.text.slice(0, 200));
 
         const dump = await t.get('/api/v1/datasets/votes.jsonl');
         assert.strictEqual(dump.status, 200, dump.text);
