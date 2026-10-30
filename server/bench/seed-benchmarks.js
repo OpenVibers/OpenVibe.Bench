@@ -36,6 +36,11 @@ function tasksFor(list) {
         files: [],
         expected: null,
         holdout: false,
+        // A monthly fresh set on day one: the first task of each showcase kind was added in September, the second
+        // in October. The human time is the benchmark author's own estimate.
+        added_on: i === 0 ? '2026-09-18' : '2026-10-20',
+        human_minutes: i === 0 ? 45 : 30,
+        human_minutes_source: 'benchmark author',
     }));
 }
 
