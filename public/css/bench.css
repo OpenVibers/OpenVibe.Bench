@@ -163,7 +163,7 @@ html, body { margin: 0; background: var(--bg-primary, #0a0f1c); color: var(--tex
 .br-task { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: start; padding: 14px; border-radius: 14px; background: var(--bg-card, #0f1729); border: 1px solid var(--border, #1f2d47); }
 .br-task p { margin: 0; line-height: 1.55; color: var(--text-secondary, #96a7c2); }
 .br-task.is-hidden { border-style: dashed; background: transparent; }
-.br-task-id { display: inline-flex; padding: 2px 8px; border-radius: 8px; background: var(--bg-hover, rgba(255,255,255,.05)); font-size: .78rem; font-weight: 700; color: var(--text-primary, #e6edf7); white-space: nowrap; margin: 0; }
+.br-task-id { display: inline-flex; justify-self: start; width: fit-content; padding: 2px 8px; border-radius: 8px; background: var(--bg-hover, rgba(255,255,255,.05)); font-size: .78rem; font-weight: 700; color: var(--text-primary, #e6edf7); white-space: nowrap; margin: 0; text-decoration: none; }
 .br-ptask { display: grid; gap: 10px; padding: 14px; border-radius: 16px; background: var(--bg-card, #0f1729); border: 1px solid var(--border, #1f2d47); min-width: 0; }
 .br-ptask-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
 .br-ptask-meta { margin-left: auto; font-size: .84rem; color: var(--text-muted, #7386a3); font-variant-numeric: tabular-nums; }
@@ -601,4 +601,28 @@ html, body { margin: 0; background: var(--bg-primary, #0a0f1c); color: var(--tex
   .fold-bare > .fold-h { display: none; }
   .fold-bare { margin-top: 0; }
   .fold:not(.fold-bare) .fold-body > .bm-section { margin-top: 0; }
+}
+
+/* ---- B13: fresh monthly sets, contamination and the time horizon ---- */
+.br-since { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; margin: 0 0 14px; }
+.br-since .br-field { margin: 0; }
+.br-since .br-field input { min-height: 40px; }
+.br-since-note { margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--room-accent) 10%, transparent); border: 1px solid color-mix(in srgb, var(--room-accent) 26%, transparent); line-height: 1.5; }
+.br-alltime { margin-top: 16px; border: 1px solid var(--border); border-radius: 14px; padding: 10px 14px; background: var(--bg-card); }
+.br-alltime > summary { cursor: pointer; font-weight: 750; min-height: 36px; display: flex; align-items: center; }
+.br-alltime > .br-table-wrap { margin-top: 8px; }
+.br-task-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px !important; }
+.br-task-meta .br-chip { font-size: .72rem; }
+.br-contams { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; }
+.br-contam { padding: 12px 14px; border-radius: 14px; background: color-mix(in srgb, #f59e0b 10%, var(--bg-card)); border: 1px solid color-mix(in srgb, #f59e0b 38%, var(--border)); line-height: 1.5; }
+.br-contam a { color: var(--room-strong); }
+.br-contam-chip { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 999px; font-size: .68rem; font-weight: 800; letter-spacing: .02em; color: #fde68a; background: color-mix(in srgb, #f59e0b 28%, transparent); border: 1px solid color-mix(in srgb, #f59e0b 55%, transparent); white-space: nowrap; }
+.br-horizon { margin: 10px 0 0; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--room-accent) 9%, transparent); border: 1px solid color-mix(in srgb, var(--room-accent) 24%, transparent); line-height: 1.5; }
+.br-estimate { margin-top: 16px; }
+@media (max-width: 560px) {
+  .br-since { align-items: stretch; }
+  .br-since .br-field { flex: 1 1 100%; }
+  .br-since .bm-btn { min-height: 44px; }
+  #br-tasks .br-task-meta { display: none; }
+  .br-rank-table td.br-c-horizon { flex: none; order: 2; font-size: .82rem; color: var(--text-secondary); text-align: left; }
 }

@@ -37,6 +37,8 @@ const TABLES = [
     { table: 'bench_watches', subject: 'subject', file: 'bench_watches.json', erase: 'delete' },
     // The results files they brought (B12): theirs, so they go with them. The bytes hang off the row and go with it.
     { table: 'bench_imports', subject: 'owner', file: 'bench_imports.json', erase: 'delete' },
+    // The human-time estimates they entered on a task (B13): theirs, one per task, exported and erased with them.
+    { table: 'bench_task_estimates', subject: 'subject', file: 'bench_task_estimates.json', erase: 'delete' },
 ];
 
 // The tables the map cannot say on its own: a benchmark and its versions are theirs, but other people's runs hang
@@ -107,7 +109,7 @@ function create({ db, log = console } = {}) {
         tables: TABLES,
         extraExport,
         extraErase,
-        note: 'Bench exports your tasks, rounds, judgements, private evals, benchmarks and their prompts, the runs on your private benchmarks, watched benchmarks and the pairs you have seen; the public dataset is anonymous and a rating never names a person.',
+        note: 'Bench exports your tasks, rounds, judgements, private evals, benchmarks and their prompts, the runs on your private benchmarks, watched benchmarks, the pairs you have seen and the human-time estimates you entered; the public dataset is anonymous and a rating never names a person.',
         log,
     });
 }

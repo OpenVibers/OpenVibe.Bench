@@ -75,6 +75,18 @@ function createRegistryApi(ctx) {
     });
     const mayRead = (req, benchmark) => canViewBenchmark(benchmark, viewerOf(req));
 
+    /** The owner, including a service token that created the benchmark, may see its held-out task text. */
+    const owns = (req, benchmark) => {
+        if (!benchmark) return false;
+        const person = subjectOf(req);
+        if (person != null && String(benchmark.owner) === String(person)) return true;
+        return req.principal.kind === 'app' && String(benchmark.owner) === String(req.principal.requester);
+    };
+    const maySeeTaskText = async (req, id) => {
+        const bm = await registry.getBenchmark(String(id || ''));
+        return mayReveal(req) || owns(req, bm);
+    };
+
     // ── Benchmarks ───────────────────────────────────────────
     r.post('/benchmarks', actor('bench.benchmark.write'), async (req, res) => {
         const b = req.body && typeof req.body === 'object' ? req.body : {};
@@ -103,7 +115,13 @@ function createRegistryApi(ctx) {
         try {
             const out = await registry.saveDraft(String(req.params.id || ''), { definition: b.definition || b, subject });
             if (!out.ok) return problem(res, out.status || 400, out.code || 'bench.invalid', out.message || 'invalid benchmark');
-            return res.json({ benchmark: out.benchmark || null, version: out.version || null, draft: out.draft || null });
+            const benchmark = await registry.getBenchmark(String(req.params.id || ''));
+            let version = null;
+            if (out.version) {
+                const seen = await registry.getDefinition(`${out.version.benchmark_id}@${out.version.version}`, { reveal: await maySeeTaskText(req, req.params.id) });
+                version = seen ? seen.version : null;
+            }
+            return res.json({ benchmark: benchmark || null, version, draft: benchmark ? benchmark.draft : null });
         } catch (err) { return failed(res, err); }
     });
 
@@ -115,7 +133,8 @@ function createRegistryApi(ctx) {
             const out = await registry.freezeVersion(String(req.params.id || ''), { definition: body, subject, validate: validateBenchmark });
             if (!out.ok) return problem(res, out.status || 400, out.code || 'bench.invalid', out.message || 'invalid benchmark');
             res.set('Location', `/api/v1/benchmarks/${out.benchmark.id}@${out.version.version}`);
-            return res.status(201).json({ benchmark: out.benchmark, version: out.version });
+            const seen = await registry.getDefinition(`${out.benchmark.id}@${out.version.version}`, { reveal: await maySeeTaskText(req, out.benchmark.id) });
+            return res.status(201).json({ benchmark: out.benchmark, version: seen ? seen.version : out.version, task_meta: seen ? seen.task_meta : [] });
         } catch (err) { return failed(res, err); }
     });
 
@@ -123,11 +142,14 @@ function createRegistryApi(ctx) {
         const b = req.body && typeof req.body === 'object' ? req.body : {};
         const subject = subjectOf(req) || req.principal.requester;
         try {
+            const bm = await registry.getBenchmark(String(req.params.id || ''));
+            if (!bm || !mayRead(req, bm)) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
             const out = await registry.forkBenchmark(String(req.params.id || ''), {
                 version: b.version == null ? null : Number(b.version),
                 title: b.title || null,
                 owner: subject,
                 subject,
+                reveal: mayReveal(req) || owns(req, bm),
             });
             if (!out.ok) return problem(res, out.status || 400, out.code || 'bench.invalid', out.message || 'invalid benchmark');
             res.set('Location', `/api/v1/benchmarks/${out.benchmark.id}`);
@@ -152,6 +174,7 @@ function createRegistryApi(ctx) {
             const mine = req.query.mine && req.principal && req.principal.kind === 'user' ? req.principal.subject : null;
             const list = await registry.listBenchmarks({
                 owner: mine,
+                viewer: mine,
                 kind: req.query.kind ? String(req.query.kind) : null,
                 tag: req.query.tag ? String(req.query.tag) : null,
                 q: req.query.q ? String(req.query.q) : null,
@@ -170,18 +193,19 @@ function createRegistryApi(ctx) {
             // A private benchmark answers only its owner and the executor; a shared unlisted one only its owner by
             // id (the token link is the way in). Everyone else gets a 404, not a "forbidden".
             if (!mayRead(req, out.benchmark)) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
-            const view = viewerOf(req);
-            const owner = view.subject != null && String(out.benchmark.owner) === String(view.subject);
-            const reveal = mayReveal(req) || owner;
+            const reveal = mayReveal(req) || owns(req, out.benchmark);
+            let definition = out.version.definition;
+            let taskMeta = out.task_meta;
             if (reveal) {
                 const full = await registry.getDefinition(ref, { reveal: true });
-                if (full) { out.definition = full.definition; out.version = full.version; }
+                if (full) { definition = full.version.definition; taskMeta = full.task_meta; }
             }
             res.set('Cache-Control', out.benchmark.visibility === 'public' ? 'public, max-age=60' : 'private, no-store');
             return res.json({
                 benchmark: out.benchmark,
-                version: { ...out.version, definition: out.definition },
-                definition: out.definition,
+                version: { ...out.version, definition },
+                definition,
+                task_meta: taskMeta,
             });
         } catch (err) { return failed(res, err); }
     });
@@ -287,8 +311,8 @@ function createRegistryApi(ctx) {
         const benchmark = req.query.benchmark ? String(req.query.benchmark) : '';
         if (!benchmark) return invalid(res, 'benchmark is required: ?benchmark=bmk_…');
         const metric = req.query.metric ? String(req.query.metric) : 'score';
-        if (!['score', 'value', 'speed', 'consistency'].includes(metric)) {
-            return invalid(res, 'metric is score, value, speed or consistency');
+        if (!['score', 'value', 'speed', 'consistency', 'horizon'].includes(metric)) {
+            return invalid(res, 'metric is score, value, speed, consistency or horizon');
         }
         try {
             const bm = await registry.getBenchmark(benchmark.split('@')[0]);

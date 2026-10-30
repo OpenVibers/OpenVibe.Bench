@@ -30,6 +30,7 @@ const VISIBILITIES = ['public', 'unlisted', 'private'];
 const SCORING_METHODS = ['mean', 'weighted', 'pass_rate', 'sum'];
 const EXECUTOR_KINDS = ['codes', 'run', 'node', 'submitted'];
 const PROVENANCES = ['verified', 'submitted'];
+const TASK_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 class Errors {
     constructor() { this.list = []; }
@@ -55,7 +56,21 @@ function validateBenchmark(doc) {
             if (!isObj(t)) { e.add(`/tasks/${i}`, 'must be an object'); return; }
             if (!isStr(t.id) || !t.id.trim()) e.add(`/tasks/${i}/id`, 'is required');
             if (!isStr(t.prompt) || !t.prompt.trim()) e.add(`/tasks/${i}/prompt`, 'is required');
-            if (typeof t.holdout !== 'boolean') e.add(`/tasks/${i}/holdout`, 'must be true or false');
+            if (t.holdout != null && typeof t.holdout !== 'boolean') e.add(`/tasks/${i}/holdout`, 'must be true or false');
+            if (t.held_out != null && typeof t.held_out !== 'boolean') e.add(`/tasks/${i}/held_out`, 'must be true or false');
+            if (t.holdout == null && t.held_out == null) e.add(`/tasks/${i}/holdout`, 'must be true or false');
+            if (t.added_on != null) {
+                const date = String(t.added_on).slice(0, 10);
+                if (!TASK_DATE.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`))) {
+                    e.add(`/tasks/${i}/added_on`, 'must be a date (YYYY-MM-DD)');
+                }
+            }
+            if (t.human_minutes != null && (!isNum(t.human_minutes) || t.human_minutes <= 0 || t.human_minutes > 100000)) {
+                e.add(`/tasks/${i}/human_minutes`, 'must be a positive number of minutes');
+            }
+            if (t.human_minutes_source != null && (!isStr(t.human_minutes_source) || t.human_minutes_source.length > 200)) {
+                e.add(`/tasks/${i}/human_minutes_source`, 'must be a string of at most 200 characters');
+            }
         });
     }
     if (!Array.isArray(doc.judges)) e.add('/judges', 'must be an array');
