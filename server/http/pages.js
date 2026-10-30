@@ -13,7 +13,7 @@ const { raw } = require('../render/html');
 const { send } = require('../render/layout');
 const views = require('../views');
 const results = require('../views/results');
-const { canViewBenchmark } = require('../bench/registry');
+const { canViewBenchmark, parseSince } = require('../bench/registry');
 const { parsePrompts, definitionFor, TAG: PROMPT_TAG } = require('../bench/your-prompts');
 const { validateBenchmark } = require('../bench/validate');
 const { kindById } = require('../kinds');
@@ -96,10 +96,12 @@ function createPageRoutes(ctx) {
         const metric = METRIC_IDS.includes(String(req.query.metric)) ? String(req.query.metric) : 'score';
         const id = out.benchmark.id;
         const owner = subjectOf(req) != null && String(out.benchmark.owner) === String(subjectOf(req));
+        const since = parseSince(req.query.since);
         const [rankings, runs] = await Promise.all([
-            registry.rankings({ benchmark: id, metric }),
+            registry.rankings({ benchmark: id, metric, since: since ? since.text : null }),
             registry.listRuns({ benchmark: id, limit: 8 }),
         ]);
+        const allTime = since ? await registry.rankings({ benchmark: id, metric }) : null;
         const isPublic = out.benchmark.visibility === 'public';
         const isPromptBenchmark = Array.isArray(out.benchmark.tags) && out.benchmark.tags.includes(PROMPT_TAG);
         const ownBoards = owner && isPromptBenchmark
@@ -120,7 +122,7 @@ function createPageRoutes(ctx) {
             body: raw(String(results.benchmarkPage({
                 benchmark: out.benchmark, definition: out.definition, version: out.version && out.version.version,
                 rankings, metric, runs, codesRunUrl: config.codesRunUrl || null, viewer: req.viewer, baseUrl: base(),
-                ownBoards, share, shared, owner,
+                ownBoards, share, shared, owner, since: rankings && rankings.since, allTimeEntries: allTime && allTime.entries,
             }))),
         }, status);
     };
@@ -225,6 +227,48 @@ function createPageRoutes(ctx) {
         });
     });
 
+    // One task, and the signed-in editors' human-time estimates (B13). A plain form, same-origin, rate-limited in
+    // the registry per person; nothing here logs the text of a held-out task.
+    const taskContext = async (req) => {
+        const out = await readableBenchmark(req, req.params.ref);
+        if (!out) return null;
+        const version = out.version && out.version.version;
+        const task = ((out.definition && out.definition.tasks) || []).find((t) => String(t.id) === String(req.params.taskId));
+        if (!task) return null;
+        const estimates = await registry.taskEstimateSummary(out.benchmark.id, version, task.id);
+        return { out, version, task, estimates };
+    };
+    const taskPage = async (req, res, extra = {}) => {
+        const found = await taskContext(req);
+        if (!found) return notFound(req, res, 'task');
+        const subject = subjectOf(req);
+        return page(req, res, {
+            index: false, title: `${found.task.id} on ${found.out.benchmark.title}`,
+            description: `A task of ${found.out.benchmark.title}: its human-time estimate and the editors’ median.`,
+            body: raw(String(results.taskPage({
+                benchmark: found.out.benchmark, version: found.version, task: found.task, estimates: found.estimates,
+                signedIn: Boolean(subject), loginUrl: `/auth/login?next=${encodeURIComponent(req.originalUrl)}`,
+                ...extra,
+            }))),
+        }, extra.status || 200);
+    };
+    r.get('/benchmarks/:ref/tasks/:taskId', (req, res) => taskPage(req, res));
+    r.post('/benchmarks/:ref/tasks/:taskId/estimates', express.urlencoded({ extended: false, limit: '8kb' }), ctx.principal.middleware, async (req, res) => {
+        const subject = subjectOf(req);
+        const found = await taskContext(req);
+        if (!found) return notFound(req, res, 'task');
+        if (!subject) return taskPage(req, res, { error: 'Sign in to add an estimate.', status: 401 });
+        if (!sameOrigin(req, config)) return res.status(403).type('text').send('This form only works from Bench itself.');
+        const body = req.body && typeof req.body === 'object' ? req.body : {};
+        const version = body.version == null ? found.version : Number(body.version);
+        const out = await registry.addTaskEstimate({
+            benchmarkId: found.out.benchmark.id, version, taskId: found.task.id,
+            minutes: body.minutes, subject,
+        });
+        if (!out.ok) return taskPage(req, res, { error: out.message || 'The estimate could not be saved.', status: out.status || 422 });
+        return res.redirect(303, `/benchmarks/${encodeURIComponent(found.out.benchmark.id)}/tasks/${encodeURIComponent(found.task.id)}`);
+    });
+
     r.get('/benchmarks/:ref', async (req, res) => {
         const out = await readableBenchmark(req, req.params.ref);
         if (!out) return notFound(req, res, 'benchmark');
@@ -308,9 +352,10 @@ function createPageRoutes(ctx) {
 
     r.get('/models/:model', async (req, res) => {
         const model = String(req.params.model || '').slice(0, 160);
-        const [summary, runs] = await Promise.all([
+        const [summary, runs, horizon] = await Promise.all([
             registry.modelSummary(model),
             registry.listRuns({ model, publicOnly: true, limit: 12 }),
+            registry.modelHorizon(model),
         ]);
         const titles = {};
         for (const b of summary.benchmarks) titles[b.benchmark_id] = b.title;
@@ -321,7 +366,7 @@ function createPageRoutes(ctx) {
             index: summary.runs > 0, cache: PUBLIC_CACHE,
             title: model,
             description: `${model} across OpenVibe.Bench: its median score, spread, cost and time on every benchmark it ran.`,
-            body: raw(String(results.modelPage({ model, summary, runs, titles, viewer: req.viewer, baseUrl: base() }))),
+            body: raw(String(results.modelPage({ model, summary, runs, titles, viewer: req.viewer, baseUrl: base(), horizon }))),
         }, summary.runs > 0 || runs.length ? 200 : 404);
     });
 

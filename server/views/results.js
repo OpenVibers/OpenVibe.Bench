@@ -37,6 +37,12 @@ function fmtTokens(v) {
     return String(n);
 }
 const fmtDate = (iso) => (iso ? html`<time datetime="${iso}">${String(iso).slice(0, 10)}</time>` : '—');
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+function monthLabel(month) {
+    const m = /^(\d{4})-(\d{2})$/.exec(String(month || ''));
+    if (!m) return String(month || '');
+    return `${MONTHS[Number(m[2]) - 1]} ${m[1]}`;
+}
 function ordinal(n) {
     const v = Math.round(Number(n));
     const t = v % 100;
@@ -175,7 +181,40 @@ const METRICS = [
     { id: 'value', label: 'Value', hint: 'score per dollar' },
     { id: 'speed', label: 'Speed', hint: 'score per minute' },
     { id: 'consistency', label: 'Steadiness', hint: 'spread inside a session, lower is steadier' },
+    { id: 'horizon', label: 'Horizon', hint: 'the human-length task the model does 50% of the time, after METR' },
 ];
+
+function fmtMinutes(v) {
+    if (v == null) return '—';
+    const n = Number(v);
+    if (n < 1) return `${Math.round(n * 60)} s`;
+    if (n < 90) return `${Math.round(n * 10) / 10} min`;
+    return `${Math.round(n / 6) / 10} h`;
+}
+
+/** The 50% time horizon, with its bootstrap interval; never a number below the gates. */
+function horizonText(h) {
+    if (!h || !h.available) return '—';
+    return `${fmtMinutes(h.horizon_minutes)} (${fmtMinutes(h.ci_lower)}–${fmtMinutes(h.ci_upper)})`;
+}
+
+function horizonLine(h) {
+    if (!h) return '';
+    if (h.available) {
+        return html`<p class="br-horizon"><b>Time horizon:</b> reliably does about ${fmtMinutes(h.horizon_minutes)} tasks. 90% interval ${fmtMinutes(h.ci_lower)}–${fmtMinutes(h.ci_upper)}, from ${plural(h.timed_tasks, 'timed task')} and ${plural(h.runs, 'run')}.</p>`;
+    }
+    return html`<p class="br-fine br-horizon">Time horizon: not enough runs yet (needs ${h.need_tasks || 15} timed tasks and ${h.need_runs || 3} runs).</p>`;
+}
+
+/** The contamination badge, with both numbers and their bands. Only a real flag is ever shown. */
+function contaminationList(entries) {
+    const flagged = entries.filter((e) => e.contamination && e.contamination.flag);
+    if (!flagged.length) return '';
+    return html`<ul class="br-contams">${flagged.map((e) => {
+        const c = e.contamination;
+        return html`<li class="br-contam"><b>${e.model}</b> — Did much better on older tasks: possibly seen in training. Older tasks ${fmtScore(c.old.median)} (${fmtScore(c.old.lower)}–${fmtScore(c.old.upper)}), fresh tasks ${fmtScore(c.fresh.median)} (${fmtScore(c.fresh.lower)}–${fmtScore(c.fresh.upper)}). Release cutoff ${c.cutoff}${c.source ? html` · <a href="${c.source}" rel="nofollow noopener">source</a>` : ''}.</li>`;
+    })}</ul>`;
+}
 
 function metricTabs(base, current) {
     return html`<nav class="br-tabs" aria-label="Rank by">${METRICS.map((m) => html`<a class="br-tab" href="${base}?metric=${m.id}#br-rank"${m.id === current ? raw(' aria-current="page"') : ''}${m.hint ? raw(` title="${m.hint}"`) : ''}>${m.label}</a>`)}</nav>`;
@@ -183,9 +222,16 @@ function metricTabs(base, current) {
 
 function rankingsTable(entries, metric) {
     if (!entries.length) return '';
-    const col = { value: (e) => (e.value == null ? '—' : `${fmtScore(e.value)} / $`), speed: (e) => (e.speed == null ? '—' : `${fmtScore(e.speed)} / min`), consistency: (e) => (e.consistency == null ? '—' : `±${fmtScore(e.consistency)}`) }[metric];
+    const col = {
+        value: (e) => (e.value == null ? '—' : `${fmtScore(e.value)} / $`),
+        speed: (e) => (e.speed == null ? '—' : `${fmtScore(e.speed)} / min`),
+        consistency: (e) => (e.consistency == null ? '—' : `±${fmtScore(e.consistency)}`),
+    }[metric];
     const bands = metric === 'score' && entries.some((e) => e.band);
-    return html`<div class="br-table-wrap"><table class="br-table br-rank-table"><thead><tr><th scope="col">#</th>${bands ? html`<th scope="col">Band</th>` : ''}<th scope="col">Model</th><th scope="col">Score</th>${col ? html`<th scope="col">${METRICS.find((m) => m.id === metric).label}</th>` : ''}<th scope="col" class="br-num">Cost / run</th><th scope="col" class="br-num">Time</th><th scope="col" class="br-num">Runs</th></tr></thead><tbody>${entries.map((e, i) => html`<tr><td class="br-rank">${i + 1}</td>${bands ? html`<td class="br-c-band"><span class="rt-band">${e.band || '—'}</span></td>` : ''}<td class="br-c-model"><a class="br-model" href="${modelHref(e.model)}">${e.model}</a></td><td class="br-c-score">${scoreBar(e.score)}</td>${col ? html`<td class="br-num br-c-metric" data-label="${METRICS.find((m) => m.id === metric).label}">${col(e)}</td>` : ''}<td class="br-num br-c-cost" data-label="cost/run">${fmtUsd(e.cost_usd)}</td><td class="br-num br-c-time" data-label="time">${fmtMs(e.ms)}</td><td class="br-num br-c-runs" data-label="runs">${e.runs}</td></tr>`)}</tbody></table></div>`;
+    const isHorizon = metric === 'horizon';
+    const showHorizon = isHorizon || entries.some((e) => e.horizon && (e.horizon.available || e.horizon.timed_tasks > 0));
+    const metricLabel = METRICS.find((m) => m.id === metric).label;
+    return html`<div class="br-table-wrap"><table class="br-table br-rank-table"><thead><tr><th scope="col">#</th>${bands ? html`<th scope="col">Band</th>` : ''}<th scope="col">Model</th><th scope="col">Score</th>${col && !isHorizon ? html`<th scope="col">${metricLabel}</th>` : ''}${showHorizon ? html`<th scope="col" class="br-num"><a href="?metric=horizon#br-rank"${isHorizon ? raw(' aria-current="page"') : ''}>Horizon</a></th>` : ''}<th scope="col" class="br-num">Cost / run</th><th scope="col" class="br-num">Time</th><th scope="col" class="br-num">Runs</th></tr></thead><tbody>${entries.map((e, i) => html`<tr><td class="br-rank">${i + 1}</td>${bands ? html`<td class="br-c-band"><span class="rt-band">${e.band || '—'}</span></td>` : ''}<td class="br-c-model"><a class="br-model" href="${modelHref(e.model)}">${e.model}</a>${e.contamination && e.contamination.flag ? html`<span class="br-contam-chip" title="Did much better on older tasks: possibly seen in training">possibly seen in training</span>` : ''}</td><td class="br-c-score">${scoreBar(e.score)}</td>${col && !isHorizon ? html`<td class="br-num br-c-metric" data-label="${metricLabel}">${col(e)}</td>` : ''}${showHorizon ? html`<td class="br-num br-c-horizon" data-label="horizon" title="${e.horizon && e.horizon.available ? `${e.horizon.timed_tasks} timed tasks, ${e.horizon.runs} runs` : 'not enough runs yet'}">${horizonText(e.horizon)}</td>` : ''}<td class="br-num br-c-cost" data-label="cost/run">${fmtUsd(e.cost_usd)}</td><td class="br-num br-c-time" data-label="time">${fmtMs(e.ms)}</td><td class="br-num br-c-runs" data-label="runs">${e.runs}</td></tr>`)}</tbody></table></div>${contaminationList(entries)}`;
 }
 
 /**
@@ -338,9 +384,10 @@ ${error ? html`<div class="bm-note is-bad" role="alert">${error}</div>` : ''}
 </div>`;
 }
 
-function benchmarkPage({ benchmark, definition, version, rankings, metric = 'score', runs = [], codesRunUrl = null, viewer = null, baseUrl = '', ownBoards = null, share = null, shared = false, owner = false }) {
+function benchmarkPage({ benchmark, definition, version, rankings, metric = 'score', runs = [], codesRunUrl = null, viewer = null, baseUrl = '', ownBoards = null, share = null, shared = false, owner = false, since = null, allTimeEntries = null }) {
     const d = definition || {};
     const tasks = Array.isArray(d.tasks) ? d.tasks : [];
+    const freshSets = [...new Set(tasks.map((t) => (t && t.added_on ? String(t.added_on).slice(0, 7) : null)).filter(Boolean))].sort().reverse();
     const shown = tasks.filter((t) => !t.holdout && t.prompt);
     const hidden = tasks.length - shown.length;
     const judges = Array.isArray(d.judges) ? d.judges : [];
@@ -376,16 +423,51 @@ ${owner ? shareBox({ benchmark, shareUrl: share && share.shareUrl, error: share 
 ${ownBoards
         ? promptBoards(ownBoards)
         : html`<section class="bm-section" id="br-rank" aria-labelledby="br-rank-h"><div class="bm-head-row"><h2 id="br-rank-h">Rankings</h2>${metricTabs(base, metric)}</div>
+${since ? html`<p class="br-since-note" role="status"><b>On tasks since ${since.label}</b>${since.basis === 'runs' ? ' (this benchmark’s tasks carry no dates, so it filters by run date)' : ''}. <a href="${base}?metric=${metric}#br-rank">All-time board</a></p>` : ''}
+<form class="br-since" method="get" action="${base}#br-rank"><input type="hidden" name="metric" value="${metric}"><label class="br-field"><span>Fresh set: on tasks since</span><input type="month" name="since" value="${since ? since.month : ''}"></label><button class="bm-btn bm-btn-small" type="submit">Show</button></form>
+${freshSets.length ? html`<p class="br-fine br-fresh-sets">Fresh sets: ${freshSets.map((month, i) => html`${i ? ' · ' : ''}<a href="${base}?metric=${metric}&amp;since=${encodeURIComponent(month)}#br-rank">${monthLabel(month)}</a>`)}. Pick one to score only the tasks added that month or later.</p>` : ''}
 ${valueChart(entries)}
-${entries.length ? rankingsTable(entries, metric) : empty('No verified runs yet', 'A run counts here once openvibe.codes, Run or a Node worker ran it and published it. Submitted runs are listed below but never ranked.')}
+${entries.length ? rankingsTable(entries, metric) : empty(since ? 'No tasks in that fresh set yet' : 'No verified runs yet', since ? 'No run here scored a task added on or after that month. Pick an earlier month, or see the all-time board.' : 'A run counts here once openvibe.codes, Run or a Node worker ran it and published it. Submitted runs are listed below but never ranked.')}
+${since && allTimeEntries && allTimeEntries.length ? html`<details class="br-fold br-alltime"><summary>All-time board</summary>${rankingsTable(allTimeEntries, metric)}</details>` : ''}
 </section>`}
 <section class="bm-section" id="br-tasks" aria-labelledby="br-tasks-h"><div class="bm-head-row"><h2 id="br-tasks-h">Tasks</h2><span class="bm-count">${tasks.length}</span></div>
-<ol class="br-tasks">${shown.map((t, i) => html`<li class="br-task"><span class="br-task-n">${i + 1}</span><span class="br-task-id br-mono">${t.id}</span><p>${t.prompt}</p>${t.expected && t.expected.answer ? html`<p class="br-fine br-task-expected">Expected: ${String(t.expected.answer).slice(0, 300)}</p>` : ''}</li>`)}${hidden ? html`<li class="br-task is-hidden"><span class="br-task-id br-mono">${plural(hidden, 'task')}</span><p>Held out: only the executor sees ${hidden === 1 ? 'it' : 'them'}, so nobody can tune for the answer.</p></li>` : ''}</ol></section>
+<ol class="br-tasks">${shown.map((t, i) => {
+        const added = t.added_on ? String(t.added_on).slice(0, 10) : null;
+        const mins = t.human_minutes == null ? null : Number(t.human_minutes);
+        return html`<li class="br-task"><span class="br-task-n">${i + 1}</span><a class="br-task-id br-mono" href="${benchmarkHref(benchmark.id)}/tasks/${encodeURIComponent(t.id)}">${t.id}</a><p>${t.prompt}</p>${t.expected && t.expected.answer ? html`<p class="br-fine br-task-expected">Expected: ${String(t.expected.answer).slice(0, 300)}</p>` : ''}<p class="br-task-meta">${added ? html`<span class="br-chip">added ${added}</span>` : ''}${mins ? html`<span class="br-chip">${fmtMinutes(mins)} human estimate</span>` : ''}</p></li>`;
+    })}${hidden ? html`<li class="br-task is-hidden"><span class="br-task-id br-mono">${plural(hidden, 'task')}</span><p>Held out: only the executor sees ${hidden === 1 ? 'it' : 'them'}, so nobody can tune for the answer.</p></li>` : ''}</ol></section>
 <section class="bm-section" id="br-runs" aria-labelledby="br-latest-h"><div class="bm-head-row"><h2 id="br-latest-h">Latest runs</h2>${runs.length > 1 ? html`<a class="bm-more" href="${compareHref(runs.slice(0, 2).map((r) => r.id))}">Compare the newest two</a>` : ''}</div>
 ${runs.length ? runsList(runs) : empty('No runs yet', 'The first run shows up here, verified or submitted.')}</section>
 </div>
 ${benchmark.visibility === 'private' ? '' : benchmarkUseThis({ baseUrl, benchmark, entries, viewer })}
 <p class="br-fine br-api">The same data as JSON: <a href="/api/v1/benchmarks/${encodeURIComponent(benchmark.id)}">definition</a> · <a href="/api/v1/rankings?benchmark=${encodeURIComponent(benchmark.id)}&amp;metric=${metric}">rankings</a></p>
+</div>`;
+}
+
+/**
+ * One task: its prompt, when it was added, its human-time estimate and (for a signed-in editor) the form that adds
+ * one. The median of three distinct people becomes the task's time. A held-out task keeps its prompt on the server.
+ */
+function taskPage({ benchmark, version, task, estimates = { count: 0, needed: 3, median: null }, signedIn = false, loginUrl = '/auth/login', error = null, status = null }) {
+    const held = Boolean(task && (task.holdout || task.held_out));
+    const added = task && task.added_on ? String(task.added_on).slice(0, 10) : null;
+    const author = task && task.human_minutes != null ? Number(task.human_minutes) : null;
+    const source = task && task.human_minutes_source ? String(task.human_minutes_source) : (author ? 'benchmark author' : null);
+    const timed = author != null ? { minutes: author, source } : (estimates.count >= 3 ? { minutes: estimates.median, source: `median of ${estimates.count} editor estimates` } : null);
+    return html`<div class="bm-wrap br bm-narrow" id="br-task-page">
+<nav class="br-crumbs" aria-label="Breadcrumb"><a href="/benchmarks">Benchmarks</a><span aria-hidden="true">/</span><a href="${benchmarkHref(benchmark.id)}">${benchmark.title}</a><span aria-hidden="true">/</span><span class="br-mono">${task ? task.id : 'task'}</span></nav>
+<header class="bm-page-h"><p class="bm-kicker">Task ${task ? task.id : ''} · v${version || benchmark.latest_version || 0}</p><h1>${benchmark.title}</h1><p class="bm-lede">${held ? 'Held-out task: its prompt stays on the server, for the executor only.' : (task && task.prompt) || ''}</p></header>
+${error ? html`<div class="bm-note is-bad" role="alert">${error}</div>` : ''}
+${held ? html`<div class="bm-note" role="status"><b>Held out.</b> The prompt and expected answer never leave the server. Editors can still give it a human-time estimate.</div>` : ''}
+<dl class="br-facts"><div><dt>Added</dt><dd>${added || 'not dated'}</dd></div><div><dt>Human time</dt><dd>${timed ? `${fmtMinutes(timed.minutes)} · ${timed.source}` : 'not enough estimates yet'}</dd></div><div><dt>Editors</dt><dd>${estimates.count} ${estimates.count === 1 ? 'estimate' : 'estimates'}${estimates.count < 3 ? `, ${3 - estimates.count} more for a median` : ''}</dd></div></dl>
+${estimates.count >= 3 ? html`<p class="br-fine">The task time is the median of ${estimates.count} signed-in editors’ estimates: <b>${fmtMinutes(estimates.median)}</b>. It is shown here, in the open data and in the time-horizon fit.</p>` : html`<p class="br-fine">The median of three distinct people’s estimates becomes this task’s human time. No individual estimate is published.</p>`}
+${signedIn
+        ? html`<form class="br-form br-estimate" method="post" action="${benchmarkHref(benchmark.id)}/tasks/${encodeURIComponent(task ? task.id : '')}/estimates">
+<input type="hidden" name="version" value="${version || benchmark.latest_version || 1}">
+<label class="br-field"><span>Your estimate, in minutes</span><input name="minutes" type="number" min="1" max="100000" step="1" required inputmode="numeric" placeholder="e.g. 40"></label>
+<div class="bm-actions"><button class="bm-btn" type="submit">${estimates.count ? 'Replace my estimate' : 'Add my estimate'}</button><a class="bm-btn bm-btn-quiet" href="${benchmarkHref(benchmark.id)}">Back to the benchmark</a></div>
+</form>`
+        : empty('Sign in to estimate', 'A human-time estimate is attached to your account, exported and deleted with it.', html`<a class="bm-btn bm-btn-small" href="${loginUrl}">Sign in with OpenVibe</a>`)}
 </div>`;
 }
 
@@ -481,11 +563,11 @@ ${rows.some((row) => runs.some((r) => ((r.tasks.find((t) => t.task_id === row.ta
 </div>`;
 }
 
-function modelPage({ model, summary, runs = [], titles = {}, viewer = null, baseUrl = '' }) {
+function modelPage({ model, summary, runs = [], titles = {}, viewer = null, baseUrl = '', horizon = null }) {
     const rows = (summary && summary.benchmarks) || [];
     return html`<div class="bm-wrap br" id="br-model">
 <nav class="br-crumbs" aria-label="Breadcrumb"><a href="/benchmarks">Benchmarks</a><span aria-hidden="true">/</span><span>Models</span></nav>
-<header class="bm-page-h"><p class="bm-kicker">Model</p><h1 class="br-mono-h">${model}</h1><p class="bm-lede">${summary && summary.runs ? `${plural(summary.runs, 'verified run')} across ${plural(rows.length, 'benchmark')}.` : 'No verified runs yet.'}</p></header>
+<header class="bm-page-h"><p class="bm-kicker">Model</p><h1 class="br-mono-h">${model}</h1><p class="bm-lede">${summary && summary.runs ? `${plural(summary.runs, 'verified run')} across ${plural(rows.length, 'benchmark')}.` : 'No verified runs yet.'}</p>${horizonLine(horizon)}</header>
 <section class="bm-section" aria-labelledby="br-mb-h"><h2 id="br-mb-h">By benchmark</h2>
 ${rows.length ? html`<div class="br-table-wrap"><table class="br-table"><thead><tr><th scope="col">Benchmark</th><th scope="col">Median</th><th scope="col" class="br-num">Spread</th><th scope="col" class="br-num">Cost / run</th><th scope="col" class="br-num">Time</th><th scope="col" class="br-num">Runs</th></tr></thead><tbody>${rows.map((b) => html`<tr><td><a href="${benchmarkHref(b.benchmark_id)}">${b.title}</a> ${kindChip(b.kind)}</td><td>${scoreBar(b.score)}</td><td class="br-num">${b.runs > 1 ? `${fmtScore(b.worst)}–${fmtScore(b.best)}` : '—'}</td><td class="br-num">${fmtUsd(b.cost_usd)}</td><td class="br-num">${fmtMs(b.ms)}</td><td class="br-num">${b.runs}</td></tr>`)}</tbody></table></div>` : empty('Nothing measured yet', 'This model shows up here after its first verified run.', html`<a class="bm-btn bm-btn-small" href="/benchmarks">Pick a benchmark</a>`)}</section>
 ${runs.length ? html`<section class="bm-section" aria-labelledby="br-mr-h"><h2 id="br-mr-h">Latest runs</h2>${runsList(runs, { showBenchmark: true, titles })}</section>` : ''}
@@ -495,6 +577,7 @@ ${modelUseThis({ baseUrl, model, rows, viewer })}
 
 module.exports = {
     benchmarksIndex, benchmarkPage, newBenchmarkPage, promptLeaderboard, promptBoards, shareBox,
-    runForm, runPage, comparePage, modelPage, valueChart, METRICS,
+    runForm, runPage, comparePage, modelPage, taskPage, valueChart, METRICS,
+    fmtMinutes, horizonText, horizonLine,
     fmtScore, fmtUsd, fmtMs, fmtTokens, ordinal, benchmarkCard, render,
 };
