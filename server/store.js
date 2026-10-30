@@ -10,6 +10,7 @@ const crypto = require('crypto');
 const { ids } = require('openvibe-contracts');
 const { KINDS, JUDGES, WINNERS, kindById } = require('./kinds');
 const ratingLib = require('./rating');
+const styleLib = require('./rating/style');
 
 const BASE_ELO = ratingLib.BASE_ELO;
 const K = 32;
@@ -277,12 +278,15 @@ function createStore(s, { log = console, random = Math.random, config = null } =
             const r = await db.maybe('SELECT * FROM bench_rounds WHERE id = $1 FOR UPDATE', [String(roundId || '')]);
             if (!r) throw new BenchError(404, 'bench.round_not_found', 'No such Bench round.');
             const id = s.newId('bte');
+            // The style of the output (how long it is, how much markup it wears) is measured once, here, so the
+            // ratings can control for style later without opening the payload again.
+            const style = styleLib.styleFeatures(payload || {});
             const row = await db.maybe(
-                `INSERT INTO bench_entries (id, round_id, provider, model, route, payload, cost_usd, ms, tokens, error, ui_check, run_id, created_at)
-                 VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11::jsonb, $12, $13::timestamptz) RETURNING *`,
+                `INSERT INTO bench_entries (id, round_id, provider, model, route, payload, cost_usd, ms, tokens, error, ui_check, run_id, created_at, style_length, style_markup)
+                 VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11::jsonb, $12, $13::timestamptz, $14, $15) RETURNING *`,
                 [id, r.id, String(provider || 'ai').slice(0, 80), String(model || 'unknown').slice(0, 120), JSON.stringify(route || {}),
                     JSON.stringify(payload || {}), num(costUsd), Math.max(0, num(ms)), Math.max(0, num(tokens)), error || null,
-                    uiCheck == null ? null : JSON.stringify(uiCheck), runId || null, s.iso()],
+                    uiCheck == null ? null : JSON.stringify(uiCheck), runId || null, s.iso(), style.length, style.markup],
             );
             await maybeReady(r.id);
             return wireEntry(row);
@@ -354,7 +358,7 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         };
     }
 
-    async function castJudgement({ roundId, kindId, judge, judgeName = null, judgeVersion = null, pair = null, outcome = null, score = null, voteCounts = null, subject }) {
+    async function castJudgement({ roundId, kindId, judge, judgeName = null, judgeVersion = null, pair = null, outcome = null, score = null, voteCounts = null, question = null, answer = null, netHash = null, subject }) {
         if (!JUDGES.includes(judge)) throw new BenchError(422, 'bench.invalid_judge', 'Unknown judge.');
         try {
             return await s.tx(async () => {
@@ -392,10 +396,12 @@ function createStore(s, { log = console, random = Math.random, config = null } =
 
                 const id = s.newId('bju');
                 const row = await db.maybe(
-                    `INSERT INTO bench_judgements (id, round_id, kind_id, judge, judge_name, judge_version, method, pair, outcome, score, subject, at, vote_counts)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12::timestamptz, $13::jsonb) RETURNING *`,
+                    `INSERT INTO bench_judgements (id, round_id, kind_id, judge, judge_name, judge_version, method, pair, outcome, score, subject, at, vote_counts, question, answer, net_hash)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12::timestamptz, $13::jsonb, $14, $15, $16) RETURNING *`,
                     [id, r.id, r.kind_id, judge, judgeName, judgeVersion, judge, pair ? JSON.stringify(pair) : null,
-                        outcome || null, score == null ? null : num(score), subject || null, s.iso(), voteCounts ? JSON.stringify(voteCounts) : null],
+                        outcome || null, score == null ? null : num(score), subject || null, s.iso(), voteCounts ? JSON.stringify(voteCounts) : null,
+                        question == null ? null : String(question).slice(0, 200), answer == null ? null : String(answer).slice(0, 40),
+                        netHash == null ? null : String(netHash).slice(0, 64)],
                 );
                 // One stream poll is one game, regardless of audience size. The counts are evidence, not Elo weight.
                 if (judge === 'human_pairwise' || judge === 'game_outcome' || (judge === 'audience_poll' && voteCounts.voters > 0)) {

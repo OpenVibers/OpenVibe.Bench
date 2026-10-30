@@ -28,6 +28,9 @@ const { createApi } = require('./http/api');
 const { createRegistryApi } = require('./http/registry');
 const { createPageRoutes } = require('./http/pages');
 const { createShowcaseRoutes, createShowcasePages } = require('./http/showcase');
+const { createGalleryRoutes, createGalleryPages } = require('./http/gallery');
+const { createBattlePages } = require('./http/battle');
+const { createRatingsPages } = require('./http/ratings');
 const { createRenderRoutes } = require('./http/render');
 const { seedShowcaseTasks } = require('./bench/seed-tasks');
 const { createRegistry } = require('./bench/registry');
@@ -160,6 +163,7 @@ async function createApp(opts = {}) {
     app.use('/api/v1', createApi(ctx));
     app.use('/api/v1', createRegistryApi(ctx));
     app.use('/api/v1/showcase', createShowcaseRoutes(ctx));
+    app.use('/api/v1/gallery', createGalleryRoutes(ctx));
     app.use(mcpRouter(ctx));
     app.use('/api', (req, res) => contracts.http.sendProblem(res, 404, 'route.not_found', { detail: 'No such API route', ctx: req.ov }));
 
@@ -176,6 +180,9 @@ async function createApp(opts = {}) {
     app.use('/render', createRenderRoutes(ctx));
     app.use('/vendor', require('./http/vendor').createVendorRoutes());
     app.use('/showcase', createShowcasePages(ctx));
+    app.use('/gallery', createGalleryPages(ctx));
+    app.use('/battle', createBattlePages(ctx));
+    app.use('/ratings', createRatingsPages(ctx));
     app.use(createPageRoutes(ctx));
     app.use((req, res) => send(res, 404, {
         viewer: req.viewer, config, path: req.originalUrl, title: 'Not found',

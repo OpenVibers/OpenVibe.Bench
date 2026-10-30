@@ -75,4 +75,12 @@ function costPerSolved(entries) {
 // Bradley–Terry with bootstrap intervals, voter weights, Wilson and percentiles: the tested library (lib.js, BENCH-2).
 const lib = require('./lib');
 
-module.exports = { eloUpdate, bradleyTerry: lib.bradleyTerry, voterWeights: lib.voterWeights, wilson: lib.wilson, percentile: lib.percentile, pareto, costPerSolved, BASE_ELO, K_DEFAULT };
+// The style-controlled fit (stage B9): a conditional logit over the votes, with the length and the markup of
+// each output as covariates, bootstrap intervals and rank bands.
+const style = require('./style');
+
+module.exports = {
+    eloUpdate, bradleyTerry: lib.bradleyTerry, voterWeights: lib.voterWeights, wilson: lib.wilson, percentile: lib.percentile, pareto, costPerSolved, BASE_ELO, K_DEFAULT,
+    style,
+    fitRatings: style.fitRatings, rankBands: style.rankBands, styleFeatures: style.styleFeatures, markupCount: style.markupCount,
+};
