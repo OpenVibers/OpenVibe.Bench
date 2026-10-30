@@ -150,6 +150,8 @@ const HOSTILE = [
         assert.strictEqual(pair.slots[0].slot, 'A');
         assert.strictEqual(pair.slots[1].slot, 'B');
         assert.strictEqual(pair.slots[0].model, undefined, 'no model before the vote');
+        assert.strictEqual(renderLib.WRAPPER_SANDBOX, 'allow-scripts allow-same-origin', 'the wrapper keeps the render origin, so the model frame\'s frame-ancestors match');
+        assert.ok(!renderLib.SANDBOX.includes('allow-same-origin'), 'the model output never keeps an origin');
         assert.ok(pair.slots[0].wrapper_url.startsWith(renderLib.RENDER_ORIGIN + '/render/w/'), 'the wrapper is on the render origin: ' + pair.slots[0].wrapper_url);
     });
 

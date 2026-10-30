@@ -142,7 +142,7 @@ async function loadStats(ctx) {
 
 function pane(slot, revealed) {
     const frame = '<iframe class="sc-pane-frame" src="' + esc(slot.wrapper_url) + '" title="Output ' + esc(slot.slot) + '"'
-        + ' sandbox="' + esc(renderLib.SANDBOX) + '" referrerpolicy="no-referrer" loading="lazy" data-entry-id="' + esc(slot.entry_id) + '"></iframe>';
+        + ' sandbox="' + esc(renderLib.WRAPPER_SANDBOX) + '" referrerpolicy="no-referrer" loading="lazy" data-entry-id="' + esc(slot.entry_id) + '"></iframe>';
     const facts = revealed
         ? '<dl class="sc-pane-facts" data-facts="' + esc(slot.slot) + '">'
         + '<div><dt>Model</dt><dd>' + esc(slot.model) + '</dd></div>'
