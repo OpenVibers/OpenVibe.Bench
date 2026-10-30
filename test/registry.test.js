@@ -158,6 +158,12 @@ function runDoc(benchmark, over = {}) {
         assert.strictEqual(anonRun.status, 401, anonRun.text);
     });
 
+    await check('a signed-in person sees a clear unavailable response until Codes runs are configured', async () => {
+        const response = await t.get(`/api/v1/benchmarks/${benchmarkId}/run`, { as: alice, json: { models: ['m'], harnesses: ['h'], repeat: 1 } });
+        assert.strictEqual(response.status, 503, response.text);
+        assert.strictEqual(response.json().code, 'bench.runner_unavailable');
+    });
+
     await check('the compare endpoint puts two runs side by side', async () => {
         const runs = await t.get(`/api/v1/compare?runs=nope`);
         assert.strictEqual(runs.status, 404, runs.text);

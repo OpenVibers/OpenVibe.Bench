@@ -79,7 +79,7 @@ async function createApp(opts = {}) {
         : async () => { throw new Error('OV_OAUTH_CLIENT_SECRET is not set: Bench cannot answer account events'); });
 
     const ctx = {
-        config, s, keys, sso, principal, bench, registry, ai, jobs, publisher, accountData, accountSend, log,
+        config, s, keys, sso, principal, bench, registry, ai, jobs, publisher, accountData, accountSend, log, fetchImpl,
         random: opts.random || Math.random,
     };
 

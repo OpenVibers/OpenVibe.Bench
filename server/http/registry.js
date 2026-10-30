@@ -23,9 +23,15 @@ const { http } = require('openvibe-contracts');
 const { asyncRouter } = require('./router');
 const { sameOrigin } = require('./same-origin');
 const { validateBenchmark, validateRun } = require('../bench/validate');
+const { createServiceTokenClient } = require('openvibe-sdk/auth');
 
 function createRegistryApi(ctx) {
     const { config, principal, registry } = ctx;
+    const fetchImpl = ctx.fetchImpl || globalThis.fetch;
+    const codesTokens = config.oauth.clientSecret ? createServiceTokenClient({
+        tokenUrl: `${config.networkInternalUrl}/oauth/token`, clientId: config.oauth.clientId,
+        clientSecret: config.oauth.clientSecret, audience: 'openvibe.codes', scope: 'codes.task.start', fetch: fetchImpl,
+    }) : null;
     const r = asyncRouter();
 
     r.use(express.json({ limit: '256kb' }));
@@ -157,6 +163,36 @@ function createRegistryApi(ctx) {
                 version: { ...out.version, definition: out.definition },
                 definition: out.definition,
             });
+        } catch (err) { return failed(res, err); }
+    });
+
+    // Hand execution to Codes, which owns the person's keys and the benchmark task lifecycle.
+    r.post('/benchmarks/:id/run', actor('bench.run.publish'), async (req, res) => {
+        const p = req.principal;
+        if (p.kind !== 'user') return problem(res, 403, 'bench.person_required', 'Sign in as the person who will run this benchmark.');
+        if (!config.codesRunUrl) return problem(res, 503, 'bench.runner_unavailable', 'Codes benchmark runs are not configured.');
+        const b = req.body && typeof req.body === 'object' ? req.body : {};
+        const models = Array.isArray(b.models) ? b.models : [];
+        const harnesses = Array.isArray(b.harnesses) ? b.harnesses : [];
+        const repeat = Number(b.repeat);
+        if (!models.length || !harnesses.length || models.length > 20 || harnesses.length > 20 || !Number.isInteger(repeat) || repeat < 1 || repeat > 20) {
+            return invalid(res, 'models and harnesses must be non-empty arrays (at most 20 each), and repeat must be 1–20');
+        }
+        const definition = await registry.getDefinition(String(req.params.id), { reveal: false });
+        if (!definition) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
+        const costEstimate = (definition.definition.tasks || []).length * models.length * harnesses.length * repeat
+            * Number(definition.definition.limits && definition.definition.limits.usd || 0);
+        if (costEstimate > 1 && b.confirm !== true) return res.status(409).json({ code: 'bench.confirm_cost', cost_estimate_usd: costEstimate, confirm_required: true });
+        try {
+            if (!codesTokens) return problem(res, 503, 'bench.runner_unavailable', 'Bench has no Network client credentials for Codes.');
+            const response = await fetchImpl(config.codesRunUrl, {
+                method: 'POST', headers: { ...(await codesTokens.authHeaders()), 'content-type': 'application/json', 'x-ov-subject': p.subject },
+                body: JSON.stringify({ benchmark: String(req.params.id), models, harnesses, repeat }),
+                signal: AbortSignal.timeout(15000),
+            });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) return problem(res, response.status < 500 ? response.status : 502, body.code || 'bench.runner_failed', body.detail || body.message || 'Codes could not start this benchmark.');
+            return res.status(202).json(body);
         } catch (err) { return failed(res, err); }
     });
 
