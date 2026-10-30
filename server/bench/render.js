@@ -37,6 +37,10 @@ function wrapperCsp(nonce) {
 const metaPolicy = (p) => p.split('; ').filter((d) => !d.startsWith('frame-ancestors')).join('; ');
 /** The sandbox attributes for every model frame: scripts yes, everything else no. */
 const SANDBOX = 'allow-scripts';
+/** The wrapper's own frame on the showcase pages. The wrapper is our code on the cookie-less render origin, and it keeps
+ *  that origin: frame-ancestors on the model document checks every ancestor, and a wrapper with an opaque origin matched
+ *  none, so Chrome refused every model frame. The model output stays in SANDBOX (opaque) one level down. */
+const WRAPPER_SANDBOX = 'allow-scripts allow-same-origin';
 /** The default wall-clock a kind may run before the wrapper stops it. */
 const DEFAULT_LIMIT_MS = 20000;
 /** The hard size cap on one entry, the same cap sanitizeHtml already applies. */
@@ -210,6 +214,6 @@ function wrapperDocument(opts) {
 }
 
 module.exports = {
-    RENDER_ORIGIN, PINNED_ORIGINS, VENDOR, SANDBOX, DEFAULT_LIMIT_MS, MAX_ENTRY_BYTES,
+    RENDER_ORIGIN, PINNED_ORIGINS, VENDOR, SANDBOX, WRAPPER_SANDBOX, DEFAULT_LIMIT_MS, MAX_ENTRY_BYTES,
     FRAME_ANCESTORS, wrapperCsp, cspFor, applyNonce, sanitizeSvg, limitMsOf, modeOf, modelDocument, wrapperDocument,
 };
