@@ -570,3 +570,28 @@ html, body { margin: 0; background: var(--bg-primary, #0a0f1c); color: var(--tex
 @media (max-width: 640px) {
   .br-sections #br-rank .br-chart { display: none; }
 }
+
+/* The fold (the owner's short-pages rule, 2026-10-30): a part a reader rarely needs. On a phone it is closed — the
+   title row is a 52 px target that opens it — and where there is room it is open and looks like the section it
+   replaces. A checkbox and a label, no script: the part stays in the page for the crawlers. */
+.fold { margin-top: 22px; }
+.fold-toggle { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.fold-h { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 16px; cursor: pointer; border: 1px solid var(--border, #1f2d47); border-radius: 16px; background: var(--bg-card, #0f1729); }
+.fold-h > h2 { margin: 0; font-size: 1.05rem; line-height: 1.3; flex: 1 1 auto; }
+.fold-h:focus-within { outline: 2px solid var(--room-accent, #3b82f6); outline-offset: 2px; }
+.fold-mark { flex: none; }
+.fold-mark::after { content: "+"; font-size: 1.25rem; font-weight: 800; color: var(--room-strong, #60a5fa); }
+.fold-toggle:checked ~ .fold-h .fold-mark::after { content: "\2212"; }
+.fold-body { display: none; }
+.fold-toggle:checked ~ .fold-body { display: block; }
+.fold-body > .bm-section { margin-top: 14px; }
+@media (min-width: 641px) {
+  .fold { margin-top: clamp(28px, 4vw, 44px); }
+  .fold-toggle { display: none; }
+  .fold-h { align-items: baseline; justify-content: space-between; gap: 12px; min-height: 0; padding: 0; margin-bottom: 12px; cursor: default; border: 0; border-radius: 0; background: none; }
+  .fold-h > h2 { margin: 0; font-size: 1.2rem; }
+  .fold-mark { display: none; }
+  .fold-body { display: block; }
+  .fold-nohead > .fold-h { display: none; }
+  .fold-body > .bm-why { margin-top: 0; }
+}
