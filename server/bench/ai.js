@@ -8,6 +8,7 @@
  */
 const { serviceAuth } = require('openvibe-contracts');
 const { sanitizeHtml } = require('./sanitize');
+const { promptFor } = require('./prompts');
 
 class BenchAiError extends Error {
     constructor(status, code, detail) {
@@ -152,11 +153,12 @@ function createBenchAi({ config, fetchImpl = globalThis.fetch, log = console }) 
     async function slots() { return (await slotPlan()).slots; }
 
     function systemPrompt(kind) {
-        return [
-            'You are a capable model competing in the OpenVibe.Bench benchmark.',
-            'Answer the task the person describes, and return only the requested output with no extra explanation.',
-            `Benchmark kind: ${kind}.`,
-        ].join('\n');
+        return promptFor(kind).system;
+    }
+
+    /** The token cap for a kind's entry type: games and three.js cost the most, SVG the least. */
+    function maxTokensFor(kind) {
+        return promptFor(kind).max_tokens;
     }
 
     function textOf(output) {
@@ -206,7 +208,7 @@ function createBenchAi({ config, fetchImpl = globalThis.fetch, log = console }) 
         const body = {
             prompt,
             system: systemPrompt(kind),
-            max_tokens: 8000,
+            max_tokens: maxTokensFor(kind),
             temperature: 0.7,
             options: { cache: false },
             ...(pinned ? { route: pinned } : {}),
@@ -260,7 +262,7 @@ function createBenchAi({ config, fetchImpl = globalThis.fetch, log = console }) 
         };
     }
 
-    return { enabled, slots, slotPlan, offeredModels, rankOffers, generate, systemPrompt };
+    return { enabled, slots, slotPlan, offeredModels, rankOffers, generate, systemPrompt, maxTokensFor };
 }
 
 module.exports = { createBenchAi, BenchAiError };
