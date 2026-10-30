@@ -43,8 +43,6 @@ function load(env = process.env) {
         networkInternalUrl: trim(env.OV_NETWORK_INTERNAL_URL || 'http://127.0.0.1:4000'),
         networkIssuer: trim(env.OV_NETWORK_ISSUER || networkUrl),
         audience: env.BENCH_AUDIENCE || 'openvibe.bench',
-        // Codes' benchmark runner endpoint. Null keeps the Run it yourself entry point hidden.
-        codesRunUrl: trim(env.CODES_BENCH_RUN_URL || '') || null,
         oauth: {
             clientId: env.OV_OAUTH_CLIENT_ID || 'bench',
             clientSecret: env.OV_OAUTH_CLIENT_SECRET || '',
