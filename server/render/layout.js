@@ -19,6 +19,8 @@ const TAGLINE = 'One AI benchmark and comparison engine for every room.';
 const PUBLIC_DIR = path.join(__dirname, '..', '..', 'public');
 const NAV = [
     { label: 'Home', href: '/' },
+    { label: 'Benchmarks', href: '/benchmarks' },
+    { label: 'Showcase', href: '/showcase' },
     { label: 'Docs', href: '/docs' },
 ];
 
@@ -44,7 +46,7 @@ function renderPage(o) {
     const nav = {
         service: 'bench',
         apiBase: NETWORK_URL,
-        links: NAV.map((l) => ({ label: l.label, href: l.href, active: pathNow === l.href || pathNow.startsWith(`${l.href}/`) })),
+        links: NAV.map((l) => ({ label: l.label, href: l.href, active: l.href === '/' ? pathNow === '/' : (pathNow.split('?')[0] === l.href || pathNow.startsWith(`${l.href}/`) || (l.href === '/benchmarks' && /^\/(runs|models|compare)(\/|\?|$)/.test(pathNow))) })),
         history: { type: 'page', title: o.title || SITE_NAME },
         silentLogin: `${o.config.baseUrl}/auth/login?silent=1&next={url}`,
         sessionUrl: '/auth/me',

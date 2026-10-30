@@ -129,7 +129,7 @@ async function loadStats(ctx) {
             total_cost_usd: Math.round(totalCost * 1e6) / 1e6,
             cost_per_entry_usd: entries ? Math.round((totalCost / entries) * 1e6) / 1e6 : null,
             median_cost_usd: c.median_cost == null ? null : num(c.median_cost),
-            median_ms: c.medemon_ms == null ? null : num(c.median_ms),
+            median_ms: c.median_ms == null ? null : num(c.median_ms),
             p95_ms: c.p95_ms == null ? null : num(c.p95_ms),
             tokens_per_entry: entries ? Math.round(num(c.tokens) / entries) : 0,
             error_rate: entries ? num(c.errors) / entries : 0,
