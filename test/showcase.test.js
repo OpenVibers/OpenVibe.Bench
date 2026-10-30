@@ -98,6 +98,9 @@ const HOSTILE = [
         assert.ok(w.text.includes('src="' + renderLib.RENDER_ORIGIN + '/render/e/'), 'the child loads from the render origin');
         assert.ok(!w.headers.get('x-frame-options'), 'no X-Frame-Options DENY: frame-ancestors decides');
         assert.ok(wcsp.includes('frame-ancestors https://bench.openvibe.services'), 'the showcase page may frame it');
+        const ecsp = (await t.get('/render/e/' + entryA)).headers.get('content-security-policy') || '';
+        assert.ok(ecsp.includes('frame-ancestors ' + renderLib.RENDER_ORIGIN), 'the wrapper on the render origin may frame the model document: ' + ecsp);
+        assert.ok(!/<meta[^>]*frame-ancestors/.test(w.text), 'no frame-ancestors in a meta tag (ignored there)');
     });
 
     await check('built-in pages and whole pages: one nonce per script, the import map for three and its addons', async () => {

@@ -33,6 +33,8 @@ function wrapperCsp(nonce) {
     return "default-src 'none'; script-src 'nonce-" + nonce + "'; style-src 'unsafe-inline'; frame-src " + RENDER_ORIGIN
         + "; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors " + FRAME_ANCESTORS;
 }
+/** The policy as a <meta> tag carries it: browsers ignore frame-ancestors there (and warn); the header has it. */
+const metaPolicy = (p) => p.split('; ').filter((d) => !d.startsWith('frame-ancestors')).join('; ');
 /** The sandbox attributes for every model frame: scripts yes, everything else no. */
 const SANDBOX = 'allow-scripts';
 /** The default wall-clock a kind may run before the wrapper stops it. */
@@ -55,7 +57,8 @@ function cspFor(nonce) {
         "object-src 'none'",
         "form-action 'none'",
         "base-uri 'none'",
-        "frame-ancestors " + FRAME_ANCESTORS,
+        // The model document's parent is the wrapper, on the render origin itself; every ancestor must be listed.
+        "frame-ancestors " + RENDER_ORIGIN + ' ' + FRAME_ANCESTORS,
     ].join('; ');
 }
 
@@ -98,7 +101,7 @@ function modeOf(kind) {
 
 function head(nonce, extra) {
     return '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
-        + '<meta http-equiv="Content-Security-Policy" content="' + esc(cspFor(nonce)) + '">' + (extra || '');
+        + '<meta http-equiv="Content-Security-Policy" content="' + esc(metaPolicy(cspFor(nonce))) + '">' + (extra || '');
 }
 
 /** The import map the wrapper injects: three.js is vendored on the render origin, never fetched from a CDN. */
@@ -186,7 +189,7 @@ function wrapperDocument(opts) {
     const nonce = (opts && opts.nonce) || crypto.randomBytes(16).toString('base64');
     const secs = Math.max(1, Math.round(limitMs / 1000));
     return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
-        + '<meta http-equiv="Content-Security-Policy" content="' + esc(wrapperCsp(nonce)) + '">'
+        + '<meta http-equiv="Content-Security-Policy" content="' + esc(metaPolicy(wrapperCsp(nonce))) + '">'
         + '<style>html,body{margin:0;height:100%;font:14px/1.4 system-ui,sans-serif;background:#0f1115;color:#e9edf2}'
         + '.bar{display:flex;gap:.5rem;align-items:center;justify-content:space-between;padding:.35rem .6rem;background:#171a21;border-bottom:1px solid #262b36}'
         + '.bar b{font-weight:600}.clock{font-variant-numeric:tabular-nums;color:#9fb0c8}'
