@@ -69,6 +69,8 @@ async function badgeFor(ctx, benchmarkId, model) {
     const registry = ctx.registry;
     const benchmark = await registry.getBenchmark(String(benchmarkId || ''));
     if (!benchmark) return noData('unknown benchmark');
+    // A private benchmark has no publishable badge for anyone, its owner included: the badge is a public URL.
+    if (benchmark.visibility === 'private') return noData('private benchmark');
     const rankings = await registry.rankings({ benchmark: benchmark.id, metric: 'score' });
     const entries = (rankings && rankings.entries) || [];
     const row = entries.find((e) => String(e.model) === String(model || ''));

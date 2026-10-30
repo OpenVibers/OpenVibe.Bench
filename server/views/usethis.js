@@ -53,11 +53,12 @@ function benchmarkUseThis({ baseUrl, benchmark, entries = [], viewer = null, bac
         const s = badgeSnippets(baseUrl, benchmark.id, e.model, benchmark.title);
         return copyBox({ heading: e.model, pairs: [{ label: 'Markdown', value: s.markdown }, { label: 'HTML', value: s.html }] });
     });
-    return html`<section class="bm-section" aria-labelledby="br-use-h"><h2 id="br-use-h">Use this</h2>
+    // Closed by default: the badge snippets are useful, but they are not the page's reason to exist.
+    return html`<section class="bm-section br-usethis" aria-labelledby="br-use-h"><details class="br-usethis-details"><summary><h2 id="br-use-h">Badges and embeds</h2></summary>
 <p class="br-fine">A badge for your README, and a watch that tells you when this benchmark moves.</p>
 ${boxes}
 ${followForm({ benchmarkId: benchmark.id, back: back || ('/benchmarks/' + benchmark.id), signedIn: Boolean(viewer && viewer.kind === 'user') })}
-</section>`;
+</details></section>`;
 }
 
 /** The model page: a badge for each benchmark the model ran, and a watch for each. */
