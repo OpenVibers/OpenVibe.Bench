@@ -36,7 +36,7 @@ const { boot, check, done } = require('./helpers/boot');
         assert.match(fold, /\.fold-toggle:checked ~ \.fold-body \{ display: block; \}/, 'the title row opens it');
         assert.match(fold, /\.fold-toggle \{ display: none; \}/, 'the toggle is hidden where there is room');
         assert.match(fold, /\.fold-body \{ display: block; \}/, 'the body is open where there is room');
-        assert.match(fold, /\.fold-nohead > \.fold-h \{ display: none; \}/, 'a part with no heading of its own looks as it did');
+        assert.match(fold, /\.fold-bare > \.fold-h \{ display: none; \}/, 'a part with no heading of its own looks as it did');
         assert.ok(!/#[0-9a-f]{3,6}\b/i.test(fold.replace(/#[0-9a-f]{3,6}\b/gi, '')), 'no new colours in the fold rules');
     });
 
