@@ -48,6 +48,29 @@ const MAX_ENTRY_BYTES = MAX_BYTES;
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+/** The payload field each showcase entry type renders from. A model answers in text; this is where that text goes. */
+const PAYLOAD_FIELD = Object.freeze({
+    html_game: 'html', three_scene: 'html', motion_html: 'html', ui_page: 'html', dataviz_page: 'html', component_set: 'html',
+    svg_art: 'svg', shader_glsl: 'glsl',
+});
+/** The code inside a model's answer: the first fenced block when it wrote one (```html … ```), else the whole answer. */
+function codeOf(text) {
+    const t = String(text == null ? '' : text);
+    const m = /```[\w-]*[^\S\n]*\n([\s\S]*?)```/.exec(t);
+    return (m ? m[1] : t).trim();
+}
+/** A generated answer as the payload its entry type renders: { html } | { svg } | { glsl }, or { text } for the rest. */
+function payloadFor(entryType, text) {
+    const field = PAYLOAD_FIELD[entryType];
+    return field ? { [field]: codeOf(text) } : { text: String(text == null ? '' : text) };
+}
+/** An entry stored before payloadFor existed held only { text }: read it as its entry type's field. */
+function renderablePayload(kind, payload) {
+    const p = payload || {};
+    if (p.html || p.svg || p.glsl || p.gltf_base64 || typeof p.text !== 'string') return p;
+    return { ...p, ...payloadFor(kind && kind.entry, p.text) };
+}
+
 /** The CSP a model document runs under. The nonce is ours; model scripts get it, nothing else does. */
 function cspFor(nonce) {
     return [
@@ -116,7 +139,7 @@ function importMap() {
 /** The model document for a script kind: the model's own HTML, under our nonce and our CSP. */
 function modelDocument(kind, payload, opts) {
     const nonce = (opts && opts.nonce) || crypto.randomBytes(16).toString('base64');
-    const p = payload || {};
+    const p = renderablePayload(kind, payload);
     let body = '';
     if (typeof p.html === 'string' && p.html.trim()) body = p.html;
     else if (typeof p.glsl === 'string' && p.glsl.trim()) body = glslPage(p.glsl);
@@ -215,5 +238,5 @@ function wrapperDocument(opts) {
 
 module.exports = {
     RENDER_ORIGIN, PINNED_ORIGINS, VENDOR, SANDBOX, WRAPPER_SANDBOX, DEFAULT_LIMIT_MS, MAX_ENTRY_BYTES,
-    FRAME_ANCESTORS, wrapperCsp, cspFor, applyNonce, sanitizeSvg, limitMsOf, modeOf, modelDocument, wrapperDocument,
+    FRAME_ANCESTORS, PAYLOAD_FIELD, codeOf, payloadFor, renderablePayload, wrapperCsp, cspFor, applyNonce, sanitizeSvg, limitMsOf, modeOf, modelDocument, wrapperDocument,
 };

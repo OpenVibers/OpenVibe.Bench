@@ -58,7 +58,8 @@ function createRenderRoutes(ctx) {
         const kind = entry.kind;
         const nonce = crypto.randomBytes(16).toString('base64');
         if (kind && renderLib.modeOf(kind) === 'static') {
-            const svg = renderLib.sanitizeSvg(entry.payload && entry.payload.svg ? entry.payload.svg : (entry.payload && entry.payload.html) || '');
+            const p = renderLib.renderablePayload(kind, entry.payload);
+            const svg = renderLib.sanitizeSvg(p.svg || p.html || '');
             return bare(res)
                 .set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox")
                 .type('image/svg+xml')
