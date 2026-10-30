@@ -360,3 +360,43 @@ html, body { margin: 0; background: var(--bg-primary, #0a0f1c); color: var(--tex
   .rt-bar { height: 6px; margin-top: 4px; }
   .rt-ci { display: block; font-size: .78rem; color: var(--text-secondary, #96a7c2); }
 }
+
+/* ---- Pick for me (B10): plain controls, then the frontier ---- */
+.pk-form { display: grid; gap: 12px; margin: 18px 0 8px; padding: 16px; border: 1px solid var(--border); border-radius: 16px; background: var(--bg-card); }
+.pk-form label { display: grid; gap: 6px; font-size: .8rem; font-weight: 800; color: var(--text-secondary); }
+.pk-form select, .pk-form input[type="text"] { min-height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-primary); font: inherit; font-size: .95rem; font-weight: 500; width: 100%; }
+.pk-form select:focus-visible, .pk-form input:focus-visible { outline: 2px solid var(--room-accent); outline-offset: 2px; }
+.pk-check { display: flex; flex-direction: row; align-items: center; gap: 10px; min-height: 44px; }
+.pk-check input { width: 20px; height: 20px; accent-color: var(--room-accent); }
+.pk-words input { font-weight: 500; }
+.pk-notes { margin: 4px 0 0; }
+.pk-why { margin: 10px 0 14px; padding: 12px 14px; border-radius: 14px; background: color-mix(in srgb, var(--room-accent) 12%, transparent); border: 1px solid color-mix(in srgb, var(--room-accent) 30%, transparent); font-weight: 600; line-height: 1.55; }
+.pk-table td, .pk-table th { white-space: nowrap; }
+.pk-score { font-weight: 800; }
+.pk-band { font-size: .74rem; color: var(--text-muted); white-space: nowrap; }
+.pk-thin { opacity: .55; }
+.pk-thin-note { font-size: .72rem; color: var(--text-muted); }
+.pk-table .pk-thin-note { white-space: nowrap; }
+.pk-samples { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); margin-top: 12px; }
+.pk-card { border: 1px solid var(--border); border-radius: 16px; overflow: hidden; background: var(--bg-card); min-width: 0; }
+.pk-card-h { margin: 0; padding: 10px 12px; font-size: .85rem; font-weight: 800; overflow-wrap: anywhere; }
+.pk-shot { aspect-ratio: 16 / 10; background: var(--bg-primary); overflow: hidden; }
+.pk-shot .ga-shot { margin: 0; height: 100%; min-width: 0; }
+.pk-shot .ga-shot figcaption { display: none; }
+.pk-shot iframe, .pk-shot img { display: block; width: 100%; height: 100%; border: 0; object-fit: cover; }
+.pk-shot .ga-frame { aspect-ratio: auto; }
+.pk-prompt { padding: 0 12px 12px; margin: 0; }
+
+/* ---- Watching (B10) ---- */
+.wk-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 10px; }
+.wk-item { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; padding: 14px 16px; border: 1px solid var(--border); border-radius: 16px; background: var(--bg-card); }
+.wk-what { display: grid; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.wk-form { margin: 0; }
+
+/* ---- Use this (B10): the copy boxes ---- */
+.br-usethis { display: grid; gap: 12px; }
+.br-usethis-box { display: grid; gap: 10px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 16px; background: var(--bg-card); }
+.br-usethis-h { margin: 0; font-size: .95rem; overflow-wrap: anywhere; }
+.br-usethis-row { display: grid; gap: 6px; min-width: 0; }
+.br-usethis-row textarea { width: 100%; min-height: 44px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--bg-primary); color: var(--text-secondary); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .8rem; line-height: 1.45; resize: vertical; }
+.br-follow { margin: 0; }

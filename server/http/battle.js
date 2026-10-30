@@ -15,6 +15,7 @@ const renderLib = require('../bench/render');
 const { kindById } = require('../kinds');
 const { esc, raw } = require('../render/html');
 const { send } = require('../render/layout');
+const { battleUseThis } = require('../views/usethis');
 const { createBattles } = require('../bench/battles');
 
 const num = (v, d = 0) => (v == null || Number.isNaN(Number(v)) ? d : Number(v));
@@ -61,7 +62,7 @@ function battleView(battle) {
         + '</section>';
 }
 
-function revealView(battle) {
+function revealView(battle, { baseUrl = '' } = {}) {
     const kind = kindById(battle.kind_id);
     const vote = battle.vote || {};
     const winner = vote.outcome === 'left' ? 'A' : vote.outcome === 'right' ? 'B' : vote.outcome === 'tie' ? 'Tie' : 'Both bad';
@@ -81,6 +82,7 @@ function revealView(battle) {
         + '<div class="bt-reveal-facts">' + fact(battle.a, 'A') + fact(battle.b, 'B') + '</div>'
         + '<p class="bm-actions"><a class="bm-btn bm-btn-quiet" href="/battle">Next battle</a>'
         + '<a class="bm-btn bm-btn-quiet" href="/gallery">See the gallery</a></p>'
+        + String(battleUseThis({ baseUrl, battle, title: kind ? kind.name : battle.kind_id }))
         + '</section>';
 }
 
@@ -201,7 +203,7 @@ function createBattlePages(ctx) {
             config, viewer: viewerOf(req), path: req.originalUrl,
             title: 'Battle: the names are open',
             description: 'The two outputs of one prompt, with their names.',
-            body: raw(revealView(battle)),
+            body: raw(revealView(battle, { baseUrl: ctx.config.baseUrl })),
         });
     });
 

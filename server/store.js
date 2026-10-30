@@ -456,6 +456,12 @@ function createStore(s, { log = console, random = Math.random, config = null } =
             );
         }
         await insertOutbox('bench.rating.changed', { kind_id: kindId, category: CATEGORY_DEFAULT, subjects: models });
+        // The ratings have been refitted: this is where the watches are checked.
+        if (typeof s.onRatingsChanged === 'function') {
+            try { await s.onRatingsChanged(kindId, models); } catch (err) {
+                if (log && typeof log.warn === 'function') log.warn('[OpenVibe.Bench] watch check failed: ' + (err && err.message ? err.message : err));
+            }
+        }
     }
 
     // ── Boards ──────────────────────────────────────────────
@@ -556,6 +562,44 @@ function createStore(s, { log = console, random = Math.random, config = null } =
             return null;
         }
         return { kind_id: kindId, category, period, type, rows };
+    }
+
+    /**
+     * Every model that ran a kind, with the numbers the pick reads: the score (how often its output passed), the cost
+     * per solved task, the median time a task took and how many runs it has. Every row is kept, including the ones
+     * another model beats on both score and cost: the pick works out the frontier itself.
+     */
+    async function valueRows(kindId) {
+        const cost = await costStats(kindId);
+        const pass = await passRate(kindId);
+        const eloRows = await boardElo(kindId);
+        const rows = [];
+        for (const [model, c] of cost) {
+            const p = pass.get(model);
+            const e = eloRows.find((x) => x.subject === model) || {};
+            const trials = num(p && p.trials);
+            const passed = num(p && p.passed);
+            const quality = trials ? passed / trials : (num(e.win_rate) || 0);
+            const totalCost = num(c.total_cost);
+            const solved = passed || num(c.usable);
+            rows.push({
+                subject: model,
+                score: Math.round(quality * 1000) / 10,
+                quality: Math.round(quality * 1e6) / 1e6,
+                votes: num(e.games),
+                win_rate: num(e.win_rate) || 0,
+                runs: num(c.usable),
+                entries: num(c.entries),
+                solved,
+                cost_per_solved: solved ? Math.round((totalCost / solved) * 1e6) / 1e6 : null,
+                median_cost_usd: num(c.median_cost),
+                median_ms: num(c.median_ms),
+            });
+        }
+        rows.sort((a, b) => (b.score - a.score)
+            || ((a.cost_per_solved == null ? Infinity : a.cost_per_solved) - (b.cost_per_solved == null ? Infinity : b.cost_per_solved))
+            || a.subject.localeCompare(b.subject));
+        return rows;
     }
 
     async function modelSummary(model) {
@@ -660,7 +704,7 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         createTask, getTask,
         createRound, getRound, addEntry, maybeReady, finishRound,
         nextJudgement, castJudgement, pairwiseGames,
-        board, modelSummary, dataset, datasetJsonl,
+        board, valueRows, modelSummary, dataset, datasetJsonl,
         createEval, getEval, runEval, evalResults, evalDailyCount,
         KINDS, JUDGES, WINNERS, BASE_ELO, CATEGORY_DEFAULT, shuffle,
     };

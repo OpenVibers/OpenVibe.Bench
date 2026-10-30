@@ -37,7 +37,7 @@ async function startNetwork() {
     const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
     const publicPem = publicKey.export({ type: 'spki', format: 'pem' });
     const privatePem = privateKey.export({ type: 'pkcs8', format: 'pem' });
-    const st = { users: new Map(), byUsername: new Map(), codes: new Map(), refresh: new Map(), requests: [], tokenRequests: [], down: false };
+    const st = { users: new Map(), byUsername: new Map(), codes: new Map(), refresh: new Map(), requests: [], tokenRequests: [], pushes: [], down: false };
     let issuer = null;
     let nextUserId = 1;
 
@@ -74,6 +74,12 @@ async function startNetwork() {
         if (st.down) return problem(json, 503, 'network.down', 'Network is restarting');
 
         if (url.pathname === '/api/.well-known/jwks') return json(200, { public_key: publicPem, algorithm: 'RS256' });
+        if (url.pathname === '/internal/notifications/push' && req.method === 'POST') {
+            let body = {};
+            try { body = JSON.parse(raw.toString('utf8') || '{}'); } catch { body = {}; }
+            st.pushes.push(body);
+            return json(200, { sent: true });
+        }
         if (url.pathname === '/oauth/revoke') return json(200, {});
         if (url.pathname === '/oauth/token' && req.method === 'POST') {
             const ct = String(req.headers['content-type'] || '');
@@ -116,7 +122,7 @@ async function startNetwork() {
     issuer = srv.url;
 
     return {
-        url: srv.url, publicPem, privatePem, state: st, requests: st.requests, tokenRequests: st.tokenRequests,
+        url: srv.url, publicPem, privatePem, state: st, requests: st.requests, tokenRequests: st.tokenRequests, pushes: st.pushes,
         addUser, userToken, serviceToken, signJwt: (claims) => signJwt(claims, privatePem), issuer: () => issuer,
         issueCode(user, challenge) { const code = `code_${crypto.randomBytes(8).toString('hex')}`; st.codes.set(code, { user, challenge }); return code; },
         setDown(v) { st.down = v; },
