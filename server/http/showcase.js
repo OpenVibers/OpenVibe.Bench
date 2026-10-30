@@ -309,6 +309,7 @@ function createShowcasePages(ctx) {
         return send(res, 200, {
             config,
             viewer: viewerOf(req),
+            path: req.originalUrl,   // the navbar's current link and the canonical URL
             title: 'Showcase: two models side by side',
             description: 'One prompt, two models, live sandboxed frames: the OpenVibe.Bench showcase.',
             body: raw(galleryView(pairs)),
@@ -319,11 +320,12 @@ function createShowcasePages(ctx) {
         const subject = req.principal && req.principal.kind === 'user' ? req.principal.subject : null;
         const round = await loadRound(ctx, String(req.params.id || ''), subject);
         if (!round) {
-            return send(res, 404, { config, viewer: viewerOf(req), title: 'No such round', body: raw('<section><h1>No such round</h1></section>') });
+            return send(res, 404, { config, viewer: viewerOf(req), path: req.originalUrl, title: 'No such round', body: raw('<section><h1>No such round</h1></section>') });
         }
         return send(res, 200, {
             config,
             viewer: viewerOf(req),
+            path: req.originalUrl,   // the navbar's current link and the canonical URL
             title: 'Compare two outputs',
             description: 'Two models, one prompt, side by side.',
             body: raw(roundView(round, Boolean(subject))),

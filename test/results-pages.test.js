@@ -170,6 +170,15 @@ function runDoc(benchmark, over = {}) {
         assert.match(String(res.headers.get('cache-control')), /no-transform/);
     });
 
+    await check('the showcase page names itself: its canonical URL and its navbar link', async () => {
+        const res = await t.get('/showcase');
+        assert.strictEqual(res.status, 200, res.text.slice(0, 300));
+        assert.match(res.text, /rel="canonical" href="https:\/\/bench\.openvibe\.services\/showcase"/, 'canonical is the showcase, not the home');
+        const nav = JSON.parse(res.text.match(/window\.__OV_PAGE = (\{.*?\});/)[1]);
+        const active = nav.navbar.links.filter((l) => l.active).map((l) => l.label);
+        assert.deepStrictEqual(active, ['Showcase'], 'only Showcase is current');
+    });
+
     await check('stop', async () => { await t.close(); });
     done();
 })();
