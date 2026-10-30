@@ -80,6 +80,8 @@ function runDoc(benchmark, over = {}) {
     await publish(`${pub.id}@${pub.version}`, { model: 'model-worse', score: 55, cost_usd: 0.04, harness: { name: 'opencode', version: '1.4.2' } });
     const priv = await create({ title: 'Alice unlisted prompts', visibility: 'unlisted' }, alice);
     await publish(`${priv.id}@${priv.version}`, { model: 'model-best', score: 12, cost_usd: 0.01 });
+    const privatePage = await create({ title: 'Alice private prompts', visibility: 'private', tags: ['your-prompts'] }, alice);
+    await publish(`${privatePage.id}@${privatePage.version}`, { model: 'model-best', score: 77, cost_usd: 0.01 });
 
     await check('the benchmarks page lists the public benchmarks and escapes their titles', async () => {
         const res = await t.get('/benchmarks');
@@ -99,6 +101,34 @@ function runDoc(benchmark, over = {}) {
         assert.ok(!res.text.includes('A held-out snake game.'), 'the holdout prompt never reaches the page');
         const value = await t.get(`/benchmarks/${pub.id}?metric=value`);
         assert.ok(value.text.includes('aria-current="page"') && value.text.includes('/ $'), 'the value tab is current and shows score per dollar');
+    });
+
+    await check('the phone sections are chips, one per section, with Rankings picked first', async () => {
+        const res = await t.get(`/benchmarks/${pub.id}`);
+        const chips = [...res.text.matchAll(/<input type="radio" name="br-view" id="br-view-([a-z]+)" value="[a-z]+"( checked)?>/g)];
+        assert.deepStrictEqual(chips.map((m) => m[1]), ['rank', 'tasks', 'runs'], 'one chip per section, in order');
+        assert.deepStrictEqual(chips.filter((m) => m[2]).map((m) => m[1]), ['rank'], 'Rankings is picked first');
+        assert.match(res.text, /<div class="br-sections">[\s\S]*id="br-rank"[\s\S]*id="br-tasks"[\s\S]*id="br-runs"[\s\S]*<\/div>/, 'every section stays in the page');
+        const css = await t.get('/css/bench.css');
+        assert.ok(css.text.includes('@supports selector(:has(*))'), 'the chips are gated on :has()');
+        assert.ok(css.text.includes('.br-sections:has(#br-view-rank:checked) #br-rank'), 'Rankings shows when picked');
+        assert.ok(css.text.includes('.br-sections:has(#br-view-tasks:checked) #br-tasks'), 'Tasks shows when picked');
+        assert.ok(css.text.includes('.br-sections:has(#br-view-runs:checked) #br-runs'), 'Runs shows when picked');
+    });
+
+    await check('badges and embeds are one closed details on a public page, and absent on a private one', async () => {
+        const pubPage = await t.get(`/benchmarks/${pub.id}`);
+        assert.ok(pubPage.text.includes('<details class="br-usethis-details">'), 'one details');
+        assert.ok(!pubPage.text.includes('<details class="br-usethis-details" open'), 'closed by default');
+        assert.ok(pubPage.text.includes('Badges and embeds'), 'the summary');
+        assert.ok(pubPage.text.includes('model-best'), 'the models are inside');
+        const mine = await t.get(`/benchmarks/${privatePage.id}`, { as: alice });
+        assert.strictEqual(mine.status, 200, mine.text.slice(0, 200));
+        assert.ok(!mine.text.includes('Badges and embeds'), 'no badge section on a private benchmark');
+        assert.ok(!mine.text.includes('br-usethis'), 'no use-this markup at all');
+        const badge = await t.get(`/badge/${privatePage.id}/model-best.svg`);
+        assert.strictEqual(badge.status, 404, badge.text.slice(0, 200));
+        assert.ok(badge.text.includes('private benchmark'), 'the badge says why');
     });
 
     await check('a run page shows the environment, the score, the provenance and the outputs', async () => {

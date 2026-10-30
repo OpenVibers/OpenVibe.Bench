@@ -184,11 +184,14 @@ ${ownEntries.length ? valueChart(ownEntries) : ''}
 ${promptLeaderboard(ownEntries, { emptyText: 'No runs yet. Start it on 3 to 6 models; every run lands here, whatever it scores.' })}
 </section>
 <section class="br-duo-pane" aria-labelledby="br-public-h">
-<div class="bm-head-row"><h2 id="br-public-h">The public board for this kind</h2>${publicBoard && publicBoard.benchmark ? html`<a class="bm-more" href="${benchmarkHref(publicBoard.benchmark.id)}">${publicBoard.benchmark.title}</a>` : ''}</div>
+<div class="br-fold br-public-details"><input class="br-fold-toggle" type="checkbox" id="br-public-open"><label class="br-fold-h" for="br-public-open"><h2 id="br-public-h">The public board for this kind</h2><span class="br-fold-mark" aria-hidden="true"></span></label>
+<div class="br-fold-body">
+${publicBoard && publicBoard.benchmark ? html`<p class="br-fine"><a href="${benchmarkHref(publicBoard.benchmark.id)}">${publicBoard.benchmark.title}</a></p>` : ''}
 <p class="br-fine">Other people's runs of the public set, ranked the same way. Your prompts are not in it.</p>
 ${publicEntries.length
         ? promptLeaderboard(publicEntries, { emptyText: '' })
         : empty('No public board yet', 'No public benchmark of this kind has verified runs yet, so there is nothing to stand beside. Your own board still counts your runs.')}
+</div></div>
 </section>
 </div>
 </section>`;
@@ -258,7 +261,8 @@ function shareBox({ benchmark, shareUrl = null, error = null }) {
             ? 'Unlisted: anyone with the link can see it. It is not in any list, search, sitemap or the open data.'
             : 'Public: it is in the benchmark list, the sitemap and the open data, with every run published.';
     return html`<section class="bm-section br-share" id="br-share" aria-labelledby="br-share-h">
-<div class="bm-head-row"><h2 id="br-share-h">Sharing</h2><span class="br-chip br-vis">${visibility}</span></div>
+<div class="br-fold br-share-details"><input class="br-fold-toggle" type="checkbox" id="br-share-open"><label class="br-fold-h" for="br-share-open"><h2 id="br-share-h">Sharing</h2><span class="br-chip br-vis">${visibility}</span><span class="br-fold-mark" aria-hidden="true"></span></label>
+<div class="br-fold-body">
 <p class="br-fine">${note}</p>
 ${error ? html`<div class="bm-note is-bad" role="alert">${error}</div>` : ''}
 ${shareUrl ? html`<div class="bm-note br-share-now" role="status"><p>Your unlisted link is ready. It is shown once; copy it now. Share it again for a new link; the old one stops working.</p><label class="br-field"><span>The link</span><input class="br-share-link" type="text" readonly value="${shareUrl}" onfocus="this.select()"></label></div>` : ''}
@@ -268,6 +272,7 @@ ${shareUrl ? html`<div class="bm-note br-share-now" role="status"><p>Your unlist
 <button class="bm-btn bm-btn-quiet" type="submit" name="visibility" value="private">Make private</button>
 </form>
 <p class="br-fine">A person with the unlisted link can read the prompts and the runs. Only you can start a run on it.</p>
+</div></div>
 </section>`;
 }
 
@@ -332,17 +337,24 @@ function benchmarkPage({ benchmark, definition, version, rankings, metric = 'sco
 ${privateNote}
 <dl class="br-facts"><div><dt>Tasks</dt><dd>${tasks.length}${hidden ? html` <span class="br-fine">(${hidden} hidden)</span>` : ''}</dd></div><div><dt>Judged by</dt><dd>${judges.length ? judges.map((j) => String(j.type).replace(/_/g, ' ')).join(', ') : '—'}</dd></div><div><dt>Limits</dt><dd>${[limits.ms ? fmtMs(limits.ms) : null, limits.tokens ? `${fmtTokens(limits.tokens)} tokens` : null, limits.usd ? fmtUsd(limits.usd) : null].filter(Boolean).join(' · ') || '—'}</dd></div><div><dt>Verified runs</dt><dd>${entries.reduce((n, e) => n + e.runs, 0)}</dd></div></dl>
 ${owner ? shareBox({ benchmark, shareUrl: share && share.shareUrl, error: share && share.error }) : ''}
+<div class="br-sections">
+<div class="br-sec-pick" role="radiogroup" aria-label="Benchmark sections">
+<input type="radio" name="br-view" id="br-view-rank" value="rank" checked><label for="br-view-rank">Rankings</label>
+<input type="radio" name="br-view" id="br-view-tasks" value="tasks"><label for="br-view-tasks">Tasks</label>
+<input type="radio" name="br-view" id="br-view-runs" value="runs"><label for="br-view-runs">Runs</label>
+</div>
 ${ownBoards
         ? promptBoards(ownBoards)
         : html`<section class="bm-section" id="br-rank" aria-labelledby="br-rank-h"><div class="bm-head-row"><h2 id="br-rank-h">Rankings</h2>${metricTabs(base, metric)}</div>
 ${valueChart(entries)}
 ${entries.length ? rankingsTable(entries, metric) : empty('No verified runs yet', 'A run counts here once openvibe.codes, Run or a Node worker ran it and published it. Submitted runs are listed below but never ranked.')}
 </section>`}
-<section class="bm-section" aria-labelledby="br-tasks-h"><div class="bm-head-row"><h2 id="br-tasks-h">Tasks</h2><span class="bm-count">${tasks.length}</span></div>
-<ol class="br-tasks">${shown.map((t) => html`<li class="br-task"><span class="br-task-id br-mono">${t.id}</span><p>${t.prompt}</p>${t.expected && t.expected.answer ? html`<p class="br-fine">Expected: ${String(t.expected.answer).slice(0, 300)}</p>` : ''}</li>`)}${hidden ? html`<li class="br-task is-hidden"><span class="br-task-id br-mono">${plural(hidden, 'task')}</span><p>Held out: only the executor sees ${hidden === 1 ? 'it' : 'them'}, so nobody can tune for the answer.</p></li>` : ''}</ol></section>
-<section class="bm-section" aria-labelledby="br-latest-h"><div class="bm-head-row"><h2 id="br-latest-h">Latest runs</h2>${runs.length > 1 ? html`<a class="bm-more" href="${compareHref(runs.slice(0, 2).map((r) => r.id))}">Compare the newest two</a>` : ''}</div>
+<section class="bm-section" id="br-tasks" aria-labelledby="br-tasks-h"><div class="bm-head-row"><h2 id="br-tasks-h">Tasks</h2><span class="bm-count">${tasks.length}</span></div>
+<ol class="br-tasks">${shown.map((t, i) => html`<li class="br-task"><span class="br-task-n">${i + 1}</span><span class="br-task-id br-mono">${t.id}</span><p>${t.prompt}</p>${t.expected && t.expected.answer ? html`<p class="br-fine br-task-expected">Expected: ${String(t.expected.answer).slice(0, 300)}</p>` : ''}</li>`)}${hidden ? html`<li class="br-task is-hidden"><span class="br-task-id br-mono">${plural(hidden, 'task')}</span><p>Held out: only the executor sees ${hidden === 1 ? 'it' : 'them'}, so nobody can tune for the answer.</p></li>` : ''}</ol></section>
+<section class="bm-section" id="br-runs" aria-labelledby="br-latest-h"><div class="bm-head-row"><h2 id="br-latest-h">Latest runs</h2>${runs.length > 1 ? html`<a class="bm-more" href="${compareHref(runs.slice(0, 2).map((r) => r.id))}">Compare the newest two</a>` : ''}</div>
 ${runs.length ? runsList(runs) : empty('No runs yet', 'The first run shows up here, verified or submitted.')}</section>
-${benchmarkUseThis({ baseUrl, benchmark, entries, viewer })}
+</div>
+${benchmark.visibility === 'private' ? '' : benchmarkUseThis({ baseUrl, benchmark, entries, viewer })}
 <p class="br-fine br-api">The same data as JSON: <a href="/api/v1/benchmarks/${encodeURIComponent(benchmark.id)}">definition</a> · <a href="/api/v1/rankings?benchmark=${encodeURIComponent(benchmark.id)}&amp;metric=${metric}">rankings</a></p>
 </div>`;
 }
