@@ -13,6 +13,10 @@ const { raw } = require('../render/html');
 const { send } = require('../render/layout');
 const views = require('../views');
 const results = require('../views/results');
+const { canViewBenchmark } = require('../bench/registry');
+const { parsePrompts, definitionFor, TAG: PROMPT_TAG } = require('../bench/your-prompts');
+const { validateBenchmark } = require('../bench/validate');
+const { kindById } = require('../kinds');
 
 const PUBLIC_CACHE = 'public, max-age=60';
 
@@ -69,6 +73,58 @@ function createPageRoutes(ctx) {
     const notFound = (req, res, what) => page(req, res, { title: `No such ${what}`, body: raw(views.notFound()) }, 404);
     const METRIC_IDS = results.METRICS.map((m) => m.id);
 
+    /** The benchmark a page may show, or null: a private one belongs to its owner, a shared unlisted one to its link. */
+    const readableBenchmark = async (req, ref) => {
+        const out = await registry.getDefinition(String(ref || ''), { reveal: false });
+        if (!out) return null;
+        return canViewBenchmark(out.benchmark, { subject: subjectOf(req) }) ? out : null;
+    };
+
+    /** The public board of a kind: the first public benchmark with verified runs, else the first public one. */
+    const publicBoardForKind = async (kind, { excludeId = null } = {}) => {
+        const list = await registry.listBenchmarks({ kind: String(kind || ''), limit: 50 });
+        const publicList = list.filter((b) => b.visibility === 'public' && b.id !== excludeId);
+        for (const b of publicList) {
+            const rankings = await registry.rankings({ benchmark: b.id, metric: 'score' });
+            if (rankings && rankings.entries.length) return { benchmark: b, entries: rankings.entries };
+        }
+        return publicList.length ? { benchmark: publicList[0], entries: [] } : null;
+    };
+
+    /** One benchmark page, whether its owner, a public reader or someone following a share link is looking. */
+    const renderBenchmark = async (req, res, out, { share = null, shared = false, status = 200 } = {}) => {
+        const metric = METRIC_IDS.includes(String(req.query.metric)) ? String(req.query.metric) : 'score';
+        const id = out.benchmark.id;
+        const owner = subjectOf(req) != null && String(out.benchmark.owner) === String(subjectOf(req));
+        const [rankings, runs] = await Promise.all([
+            registry.rankings({ benchmark: id, metric }),
+            registry.listRuns({ benchmark: id, limit: 8 }),
+        ]);
+        const isPublic = out.benchmark.visibility === 'public';
+        const isPromptBenchmark = Array.isArray(out.benchmark.tags) && out.benchmark.tags.includes(PROMPT_TAG);
+        const ownBoards = owner && isPromptBenchmark
+            ? {
+                ownEntries: (rankings && rankings.entries) || [],
+                ownRuns: ((rankings && rankings.entries) || []).reduce((n, e) => n + e.runs, 0),
+                publicBoard: await publicBoardForKind(out.benchmark.kind, { excludeId: out.benchmark.id }),
+                visibility: out.benchmark.visibility,
+            }
+            : null;
+        return page(req, res, {
+            index: isPublic && metric === 'score' && !shared, cache: isPublic && !shared ? PUBLIC_CACHE : null,
+            title: out.benchmark.title,
+            description: out.benchmark.description || `${out.benchmark.title}: rankings, value and every run.`,
+            jsonLd: isPublic && !shared
+                ? [seo.jsonLd.webPage({ name: out.benchmark.title, url: `${base()}/benchmarks/${encodeURIComponent(id)}`, description: out.benchmark.description || out.benchmark.title, siteUrl: base() })]
+                : [],
+            body: raw(String(results.benchmarkPage({
+                benchmark: out.benchmark, definition: out.definition, version: out.version && out.version.version,
+                rankings, metric, runs, codesRunUrl: config.codesRunUrl || null, viewer: req.viewer, baseUrl: base(),
+                ownBoards, share, shared, owner,
+            }))),
+        }, status);
+    };
+
     r.get('/benchmarks', async (req, res) => {
         const q = String(req.query.q || '').slice(0, 80);
         const family = String(req.query.kind || '').replace(/[^a-z0-9._-]/gi, '').slice(0, 40) || null;
@@ -76,50 +132,115 @@ function createPageRoutes(ctx) {
         const kinds = [...new Set(all.map((b) => b.kind).filter(Boolean))];
         const list = family ? all.filter((b) => b.kind === family || String(b.kind).startsWith(`${family}.`)) : all;
         const counts = await registry.runCounts();
+        const subject = subjectOf(req);
+        const mine = subject ? (await registry.listBenchmarks({ owner: subject, limit: 100 })).filter((b) => b.visibility !== 'public') : [];
         for (const b of list) b.runs = counts.get(b.id) || 0;
+        for (const b of mine) b.runs = counts.get(b.id) || 0;
         return page(req, res, {
             index: !q && !family, cache: PUBLIC_CACHE,
             title: 'Benchmarks',
             description: 'Versioned AI benchmarks anyone can run again: tasks, judges and limits, with every run published.',
             jsonLd: [seo.jsonLd.webPage({ name: 'Benchmarks', url: `${base()}/benchmarks`, description: 'Versioned AI benchmarks anyone can run again.', siteUrl: base() })],
-            body: raw(String(results.benchmarksIndex({ benchmarks: list, kinds, kind: family, q }))),
+            body: raw(String(results.benchmarksIndex({ benchmarks: list, kinds, kind: family, q, mine, signedIn: Boolean(subject) }))),
+        });
+    });
+
+    // ---- a person's own prompts (B11) ---------------------------------------------------------------------
+    // The form is a plain form post, same-origin, and nothing here logs the prompts.
+    r.get('/benchmarks/new', async (req, res) => {
+        const kinds = await bench.listKinds();
+        const subject = subjectOf(req);
+        return page(req, res, {
+            index: false, title: 'Make your own benchmark',
+            description: 'Paste 5 to 50 of your own prompts as a private benchmark, then run them on 3 to 6 models.',
+            body: raw(String(results.newBenchmarkPage({
+                kinds,
+                values: { kind: String(req.query.kind || 'text.answer') },
+                signedIn: Boolean(subject),
+                loginUrl: `/auth/login?next=${encodeURIComponent('/benchmarks/new')}`,
+            }))),
+        });
+    });
+
+    r.post('/benchmarks/new', express.urlencoded({ extended: false, limit: '512kb' }), ctx.principal.middleware, async (req, res) => {
+        if (!sameOrigin(req, config)) return res.status(403).type('text').send('This form only works from Bench itself.');
+        const subject = subjectOf(req);
+        const kinds = await bench.listKinds();
+        const b = req.body && typeof req.body === 'object' ? req.body : {};
+        const values = {
+            title: String(b.title || '').slice(0, 160),
+            description: String(b.description || '').slice(0, 4000),
+            kind: String(b.kind || 'text.answer'),
+            format: String(b.format || 'auto'),
+            prompts: String(b.prompts || ''),
+        };
+        const fail = (status, error) => page(req, res, {
+            index: false, title: 'Make your own benchmark',
+            description: 'Paste 5 to 50 of your own prompts as a private benchmark.',
+            body: raw(String(results.newBenchmarkPage({ kinds, values, error, signedIn: Boolean(subject), loginUrl: `/auth/login?next=${encodeURIComponent('/benchmarks/new')}` }))),
+        }, status);
+        if (!subject) return fail(401, 'Sign in to make a benchmark of your own.');
+        const kind = kindById(values.kind);
+        if (!kind) return fail(422, 'Pick one of Bench’s kinds.');
+        const parsed = parsePrompts(values.prompts, { format: values.format });
+        if (!parsed.ok) return fail(422, parsed.detail);
+        const definition = definitionFor({ prompts: parsed.prompts, kind: kind.id, title: values.title, description: values.description });
+        try {
+            const made = await registry.createBenchmark({
+                owner: subject, title: definition.title, description: definition.description, kind: definition.kind,
+                tags: definition.tags, visibility: 'private', definition, subject,
+            });
+            if (!made.ok) return fail(made.status || 422, made.message || 'The benchmark could not be made.');
+            const frozen = await registry.freezeVersion(made.benchmark.id, { definition, subject, validate: validateBenchmark });
+            if (!frozen.ok) return fail(frozen.status || 422, frozen.message || 'The benchmark could not be frozen.');
+            return res.redirect(303, `/benchmarks/${encodeURIComponent(made.benchmark.id)}`);
+        } catch (err) {
+            ctx.log.warn('[OpenVibe.Bench] making a prompt benchmark failed:', (err && err.message) || err);
+            return fail(500, 'The benchmark could not be made. Try again in a moment.');
+        }
+    });
+
+    // A share link: only an unlisted benchmark has one, and only its hash is stored.
+    r.get('/b/:token', async (req, res) => {
+        const benchmark = await registry.findShared(String(req.params.token || ''));
+        if (!benchmark) return notFound(req, res, 'share link');
+        const out = await registry.getDefinition(benchmark.id, { reveal: false });
+        if (!out) return notFound(req, res, 'share link');
+        return renderBenchmark(req, res, out, { shared: true });
+    });
+
+    // The owner shares, unshares or publishes: a plain same-origin form post.
+    r.post('/benchmarks/:ref/share', express.urlencoded({ extended: false, limit: '16kb' }), ctx.principal.middleware, async (req, res) => {
+        if (!sameOrigin(req, config)) return res.status(403).type('text').send('This form only works from Bench itself.');
+        const subject = subjectOf(req);
+        const out = await registry.getDefinition(String(req.params.ref || ''), { reveal: false });
+        if (!out || !subject || String(out.benchmark.owner) !== String(subject)) return notFound(req, res, 'benchmark');
+        const changed = await registry.setVisibility(out.benchmark.id, { visibility: String((req.body || {}).visibility || ''), subject });
+        if (!changed.ok) {
+            return page(req, res, { index: false, title: out.benchmark.title, body: raw(String(results.benchmarkPage({ benchmark: out.benchmark, definition: out.definition, version: out.version && out.version.version, rankings: await registry.rankings({ benchmark: out.benchmark.id, metric: 'score' }), runs: await registry.listRuns({ benchmark: out.benchmark.id, limit: 8 }), codesRunUrl: config.codesRunUrl || null, viewer: req.viewer, baseUrl: base(), owner: true, share: { error: changed.message } }))) }, 422);
+        }
+        const fresh = await registry.getDefinition(out.benchmark.id, { reveal: false });
+        return renderBenchmark(req, res, fresh, {
+            share: changed.token ? { shareUrl: `${base()}${changed.share_path}`, token: changed.token } : null,
         });
     });
 
     r.get('/benchmarks/:ref', async (req, res) => {
-        const ref = String(req.params.ref || '');
-        const out = await registry.getDefinition(ref, { reveal: false });
-        const subject = subjectOf(req);
-        if (!out || (out.benchmark.visibility === 'private' && out.benchmark.owner !== subject)) return notFound(req, res, 'benchmark');
-        const metric = METRIC_IDS.includes(String(req.query.metric)) ? String(req.query.metric) : 'score';
-        const id = out.benchmark.id;
-        const [rankings, runs] = await Promise.all([
-            registry.rankings({ benchmark: id, metric }),
-            registry.listRuns({ benchmark: id, limit: 8 }),
-        ]);
-        const isPublic = out.benchmark.visibility === 'public';
-        return page(req, res, {
-            index: isPublic && metric === 'score', cache: isPublic ? PUBLIC_CACHE : null,
-            title: out.benchmark.title,
-            description: out.benchmark.description || `${out.benchmark.title}: rankings, value and every run.`,
-            jsonLd: [seo.jsonLd.webPage({ name: out.benchmark.title, url: `${base()}/benchmarks/${encodeURIComponent(id)}`, description: out.benchmark.description || out.benchmark.title, siteUrl: base() })],
-            body: raw(String(results.benchmarkPage({
-                benchmark: out.benchmark, definition: out.definition, version: out.version && out.version.version,
-                rankings, metric, runs, codesRunUrl: config.codesRunUrl || null, viewer: req.viewer, baseUrl: base(),
-            }))),
-        });
+        const out = await readableBenchmark(req, req.params.ref);
+        if (!out) return notFound(req, res, 'benchmark');
+        return renderBenchmark(req, res, out);
     });
 
     // The run form (B3): GET shows it, POST starts the run through the same launcher as the API.
     const runFormPage = async (req, res, extra = {}) => {
         const ref = String(req.params.ref || '');
-        const out = await registry.getDefinition(ref, { reveal: false });
-        if (!out || out.benchmark.visibility === 'private') return notFound(req, res, 'benchmark');
+        const out = await readableBenchmark(req, ref);
+        if (!out) return notFound(req, res, 'benchmark');
         if (!config.codesRunUrl) return res.redirect(303, `/benchmarks/${encodeURIComponent(out.benchmark.id)}`);
         const signedIn = req.viewer && req.viewer.kind === 'user';
         return page(req, res, {
             index: false, title: `Run ${out.benchmark.title}`,
-            description: `Run ${out.benchmark.title} on openvibe.codes with your own keys.`,
+            description: `Run ${out.benchmark.title} on openvibe.codes with your own keys or the free pool.`,
             body: raw(String(results.runForm({
                 benchmark: out.benchmark, definition: out.definition, version: out.version && out.version.version, signedIn,
                 harnesses: signedIn ? await ctx.launcher.harnessList() : [],
@@ -139,6 +260,7 @@ function createPageRoutes(ctx) {
         const picked = { models, harnesses, repeat };
         const out = await ctx.launcher.launch({ principal: req.principal, id: req.params.ref, models, harnesses, repeat, confirm: b.confirm === '1' });
         if (out.status === 202) return res.redirect(303, out.body.tasks_url || config.codesRunUrl);
+        if (out.status === 404) return notFound(req, res, 'benchmark');
         if (out.status === 409) return runFormPage(req, res, { picked, confirm: out.body.cost_estimate_usd == null ? 'unknown' : out.body.cost_estimate_usd });
         return runFormPage(req, res, { picked, error: out.body.detail || 'The run could not start.', status: out.status === 400 ? 400 : 200 });
     });
@@ -148,7 +270,7 @@ function createPageRoutes(ctx) {
         if (!run) return notFound(req, res, 'run');
         const def = await registry.getDefinition(`${run.benchmark_id}@${run.benchmark_version}`, { reveal: false });
         const benchmark = def ? def.benchmark : null;
-        if (benchmark && benchmark.visibility === 'private' && benchmark.owner !== subjectOf(req)) return notFound(req, res, 'run');
+        if (benchmark && !canViewBenchmark(benchmark, { subject: subjectOf(req) })) return notFound(req, res, 'run');
         const pct = run.score != null ? await registry.percentile({ benchmark: run.benchmark_id, model: run.model, score: run.score }) : null;
         const isPublic = !benchmark || benchmark.visibility === 'public';
         return page(req, res, {
@@ -163,19 +285,21 @@ function createPageRoutes(ctx) {
         const refs = String(req.query.runs || '').split(',').map((x) => x.trim()).filter(Boolean).slice(0, 4);
         let cmp = refs.length ? await registry.compareRuns(refs) : null;
         const titles = {};
+        let allPublic = true;
         if (cmp) {
             const subject = subjectOf(req);
             const keep = [];
             for (const run of cmp.runs) {
                 const b = await registry.getBenchmark(run.benchmark_id);
-                if (b && b.visibility === 'private' && b.owner !== subject) continue;
-                if (b) titles[b.id] = b.title;
+                if (!b || !canViewBenchmark(b, { subject })) continue;
+                if (b.visibility !== 'public') allPublic = false;
+                titles[b.id] = b.title;
                 keep.push(run);
             }
             cmp = keep.length ? { ...cmp, runs: keep, rows: cmp.rows.map((row) => ({ ...row, scores: keep.map((run) => { const t = run.tasks.find((x) => x.task_id === row.task_id); return t ? t.score : null; }) })) } : null;
         }
         return page(req, res, {
-            index: false, cache: PUBLIC_CACHE,
+            index: false, cache: allPublic ? PUBLIC_CACHE : null,
             title: cmp ? `Compare: ${cmp.runs.map((x) => x.model).join(' vs ')}` : 'Compare runs',
             description: 'Runs side by side: the same tasks, their scores, cost, time and outputs.',
             body: raw(String(results.comparePage({ cmp, titles }))),

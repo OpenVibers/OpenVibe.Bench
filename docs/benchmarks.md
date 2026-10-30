@@ -13,7 +13,7 @@ A benchmark (the contract is `bench.benchmark@1`) holds:
 | `title`, `description` | What the set is and who it is for. |
 | `kind` | One of Bench's kinds (`games.play`, `design.ui`, `codes.patch`, …). The kind sets the renderer. |
 | `tags` | Up to 32 words people search by. |
-| `visibility` | `public` (in the registry) or `unlisted` (by id only). |
+| `visibility` | `public` (in the registry), `unlisted` (reachable by its id; a share link when one is made), or `private` (its owner only). A pasted set of your own prompts starts private. |
 | `version` | The version this document is. Bench numbers them. |
 | `parent` | The `id@version` this one was forked from, or `null`. |
 | `tasks[]` | `{ id, prompt, files?, expected?, holdout }`. The prompt is the task; `holdout: true` hides it from everyone but the executor. |
@@ -55,6 +55,16 @@ published set, fork it — the fork records the parent, and the old version stay
   "matrix": { "models": ["claude-opus-4"], "harnesses": ["claude-code"] }
 }
 ```
+
+## Your own prompts
+
+A person can paste 5 to 50 of their own prompts at `/benchmarks/new`: one per line, or CSV with an optional
+expected answer in the second column. They become the tasks of a private benchmark (`text.answer`, or any existing
+kind), frozen as version 1. It is private by default: the owner alone sees the prompts, and another person gets a
+404. The owner may share an unlisted link (a 256-bit token, stored as a hash and checked in constant time), make it
+public (then it is in the lists, the sitemap and `/api/v1/datasets/benchmarks.jsonl`), or make it private again (the
+link stops working). Runs still go through the openvibe.codes launcher: the same estimate, the same "ask before it
+starts".
 
 ## The contracts
 

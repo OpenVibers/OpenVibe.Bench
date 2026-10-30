@@ -51,7 +51,7 @@ function createDiscoveryRoutes(ctx) {
         res.type('text/plain').set('Cache-Control', TEXT).send(seo.llmsTxt({
             name: SITE_NAME,
             summary: DESCRIPTION,
-            details: 'GET /api/v1/kinds lists the benchmark kinds. GET /api/v1/boards/:kind?type=elo|pareto|cost renders a board as JSON. GET /api/v1/datasets/:kind.jsonl is the open dataset without voter ids. POST /mcp is the Model Context Protocol endpoint.',
+            details: 'GET /api/v1/kinds lists the benchmark kinds. GET /api/v1/boards/:kind?type=elo|pareto|cost renders a board as JSON. GET /api/v1/datasets/:kind.jsonl is the open dataset without voter ids. GET /api/v1/datasets/benchmarks.jsonl is every public benchmark and its runs. POST /mcp is the Model Context Protocol endpoint.',
             sections: [
                 { title: 'Start here', links: [{ title: SITE_NAME, url: abs('/') }, { title: 'The API', url: abs('/docs') }] },
                 { title: 'Machine-readable', links: [{ title: 'Kinds (JSON)', url: abs('/api/v1/kinds') }, { title: 'Sitemap', url: abs('/sitemap.xml') }, { title: 'Release metadata (JSON)', url: abs('/release.json') }] },
@@ -69,9 +69,17 @@ function createDiscoveryRoutes(ctx) {
         }));
     });
 
-    r.get('/sitemap.xml', (_req, res) => {
+    r.get('/sitemap.xml', async (_req, res) => {
         const lastmod = siteUpdated();
-        const urls = PAGES.map((p) => ({ loc: abs(p.path), ...(lastmod ? { lastmod } : {}), changefreq: p.changefreq, priority: p.priority }));
+        // Public pages only: a private or unlisted benchmark never enters the sitemap (the registry lists public
+        // ones only).
+        const pages = [...PAGES, { path: '/benchmarks', changefreq: 'daily', priority: 0.8, title: 'Benchmarks', text: 'Versioned AI benchmarks anyone can run again.' }];
+        const benchmarks = await ctx.registry.listBenchmarks({ limit: 200 });
+        for (const b of benchmarks) {
+            if (b.visibility !== 'public') continue;
+            pages.push({ path: `/benchmarks/${encodeURIComponent(b.id)}`, changefreq: 'weekly', priority: 0.7, title: b.title, text: b.description || b.title });
+        }
+        const urls = pages.map((p) => ({ loc: abs(p.path), ...(lastmod ? { lastmod } : {}), changefreq: p.changefreq, priority: p.priority }));
         res.type('application/xml').set('Cache-Control', TEXT).send(seo.sitemapXml(urls));
     });
 

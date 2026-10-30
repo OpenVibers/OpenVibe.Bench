@@ -15,7 +15,8 @@
  */
 const crypto = require('crypto');
 const { ids } = require('openvibe-contracts');
-    const { contractRun, checkContract } = require('./validate');
+const { contractRun, checkContract, VISIBILITIES } = require('./validate');
+const { rankBands } = require('../rating/style');
 
 const num = (v, d = 0) => (v == null || v === '' || Number.isNaN(Number(v)) ? d : Number(v));
 const iso = (v) => (v == null ? null : (v instanceof Date ? v.toISOString() : String(v)));
@@ -52,6 +53,38 @@ const json = (v, fallback) => {
     return v;
 };
 
+/** A share token: 256 random bits in base64url (43 characters), never guessable. */
+function newShareToken() {
+    return crypto.randomBytes(32).toString('base64url');
+}
+
+/** Only the SHA-256 of a share token is stored, so a database read never yields a working link. */
+function shareTokenHash(token) {
+    return crypto.createHash('sha256').update(String(token || ''), 'utf8').digest('hex');
+}
+
+/** Constant-time check of a token against the stored hash: lengths first, then timingSafeEqual. */
+function shareTokenMatches(token, storedHash) {
+    if (!storedHash) return false;
+    const got = Buffer.from(shareTokenHash(token), 'hex');
+    const want = Buffer.from(String(storedHash), 'hex');
+    return got.length === want.length && crypto.timingSafeEqual(got, want);
+}
+
+/**
+ * Who may read a benchmark. Public is for everyone; private is its owner (and the executor, which needs the tasks
+ * to run them); unlisted is reachable by id as it always was, but a shared unlisted benchmark is token-only: its
+ * id alone no longer opens it.
+ */
+function canViewBenchmark(benchmark, { subject = null, executor = false } = {}) {
+    if (!benchmark) return false;
+    const owner = subject != null && String(benchmark.owner) === String(subject);
+    if (benchmark.visibility === 'public') return true;
+    if (benchmark.visibility === 'private') return owner || executor;
+    if (benchmark.visibility === 'unlisted' && benchmark.shared) return owner || executor;
+    return true;
+}
+
 function wireBenchmark(row) {
     if (!row) return null;
     return {
@@ -62,6 +95,8 @@ function wireBenchmark(row) {
         kind: row.kind,
         tags: Array.isArray(json(row.tags, [])) ? json(row.tags, []) : [],
         visibility: row.visibility,
+        // Whether an unlisted share link exists. The token itself is never in a wire object or a page source.
+        shared: Boolean(row.share_token_hash),
         parent: row.parent || null,
         latest_version: num(row.latest_version),
         draft: json(row.draft, null),
@@ -172,7 +207,7 @@ function createRegistry(s, { log = console } = {}) {
         const kindId = String(kind == null ? '' : kind).trim();
         if (!kindId) return refusal(422, 'bench.kind_required', 'A benchmark needs a kind.');
         const vis = String(visibility || 'unlisted');
-        if (!['public', 'unlisted'].includes(vis)) return refusal(422, 'bench.invalid_visibility', 'visibility is public or unlisted.');
+        if (!VISIBILITIES.includes(vis)) return refusal(422, 'bench.invalid_visibility', `visibility is ${VISIBILITIES.join(', ')}.`);
         const list = (Array.isArray(tags) ? tags : []).map((t) => String(t).trim()).filter(Boolean).slice(0, 32);
         const id = s.newId('bmk');
         const row = await db.maybe(
@@ -254,6 +289,9 @@ function createRegistry(s, { log = console } = {}) {
         if (!benchmark) return refusal(404, 'bench.benchmark_not_found', 'No such benchmark.');
         const source = definition || benchmark.draft || {};
         const version = benchmark.latest_version + 1;
+        // The published contract knows public and unlisted only. A private benchmark is frozen as unlisted (the
+        // stricter form); the row's own visibility is what every access check reads, so its prompts stay private.
+        const frozenVisibility = benchmark.visibility === 'public' ? 'public' : 'unlisted';
         const doc = {
             id: benchmark.id,
             owner: benchmark.owner,
@@ -261,7 +299,7 @@ function createRegistry(s, { log = console } = {}) {
             description: source.description == null ? benchmark.description : source.description,
             kind: source.kind || benchmark.kind,
             tags: Array.isArray(source.tags) ? source.tags : benchmark.tags,
-            visibility: source.visibility || benchmark.visibility,
+            visibility: frozenVisibility,
             version,
             parent: benchmark.parent,
             tasks: Array.isArray(source.tasks) ? source.tasks : [],
@@ -317,6 +355,85 @@ function createRegistry(s, { log = console } = {}) {
         const frozen = await freezeVersion(made.benchmark.id, { definition: { ...definition, version: 1 }, subject });
         if (!frozen.ok) return frozen;
         return { ok: true, benchmark: await getBenchmark(made.benchmark.id), version: frozen.version, parent };
+    }
+
+    /**
+     * Share or unshare a benchmark. The owner chooses:
+     *   private   only they see it; no link works
+     *   unlisted  a new random link works, and nothing lists it
+     *   public    it is in the lists, the sitemap and the open data
+     * The raw token is returned once, on the call that makes the link; only its hash is stored. Every change replaces
+     * the old token, so a link from a previous share stops working.
+     */
+    async function setVisibility(id, { visibility, subject }) {
+        const benchmark = await getBenchmark(id);
+        if (!benchmark) return refusal(404, 'bench.benchmark_not_found', 'No such benchmark.');
+        if (String(benchmark.owner) !== String(subject)) return refusal(404, 'bench.benchmark_not_found', 'No such benchmark.');
+        const vis = String(visibility || '').trim();
+        if (!VISIBILITIES.includes(vis)) return refusal(422, 'bench.invalid_visibility', `visibility is ${VISIBILITIES.join(', ')}.`);
+        const token = vis === 'unlisted' ? newShareToken() : null;
+        const row = await db.maybe(
+            `UPDATE bench_benchmarks SET visibility = $1, share_token_hash = $2, updated_at = $3::timestamptz
+             WHERE id = $4 RETURNING *`,
+            [vis, token ? shareTokenHash(token) : null, s.iso(), benchmark.id]);
+        return {
+            ok: true,
+            benchmark: wireBenchmark(row),
+            token,
+            share_path: token ? `/b/${token}` : null,
+        };
+    }
+
+    /** The benchmark an unlisted link names, checked in constant time. A private or public row has no token. */
+    async function findShared(token) {
+        const text = String(token || '');
+        if (!/^[A-Za-z0-9_-]{20,120}$/.test(text)) return null;
+        const hash = shareTokenHash(text);
+        const row = await db.maybe(
+            "SELECT * FROM bench_benchmarks WHERE share_token_hash = $1 AND visibility = 'unlisted'",
+            [hash]);
+        if (!row || !shareTokenMatches(text, row.share_token_hash)) return null;
+        return wireBenchmark(row);
+    }
+
+    /**
+     * The open data for the registry: every public benchmark, its visible tasks, and every run published under it.
+     * Nothing private or unlisted is ever read here; a person id (created_by, the executor's id) is left out, and a
+     * holdout task keeps its prompt to the executor.
+     */
+    async function publicDatasetLines() {
+        const benchmarks = await listBenchmarks({ limit: 200 });
+        const lines = [];
+        for (const benchmark of benchmarks) {
+            if (benchmark.visibility !== 'public') continue;
+            const version = await latestVersion(benchmark.id);
+            if (!version) continue;
+            const definition = version.definition || {};
+            lines.push(JSON.stringify({
+                type: 'benchmark', id: benchmark.id, title: benchmark.title, description: benchmark.description,
+                kind: benchmark.kind, tags: benchmark.tags, version: version.version, parent: benchmark.parent,
+                created_at: benchmark.created_at,
+            }));
+            for (const task of (definition.tasks || [])) {
+                if (!task || task.holdout) continue;
+                const item = { type: 'benchmark_task', benchmark: `${benchmark.id}@${version.version}`, id: task.id, prompt: task.prompt };
+                if (task.expected != null) item.expected = task.expected;
+                lines.push(JSON.stringify(item));
+            }
+            const runs = await db.many(
+                'SELECT * FROM bench_runs WHERE benchmark_id = $1 AND benchmark_version = $2 ORDER BY created_at, id',
+                [benchmark.id, version.version]);
+            for (const row of runs) {
+                const run = wireRun(row);
+                lines.push(JSON.stringify({
+                    type: 'benchmark_run', benchmark: run.benchmark, model: run.model, route: run.route,
+                    provider: run.provider, harness: run.harness, settings: run.settings, hardware: run.hardware,
+                    score: run.score, cost_usd: run.cost_usd, ms: run.ms, tokens: run.tokens,
+                    provenance: run.provenance, session: run.session, created_at: run.created_at,
+                }));
+            }
+        }
+        return lines.length ? `${lines.join('\n')}\n` : '';
     }
 
     /** The registry list: by kind, by tag, or by a search over the title and the description. */
@@ -485,6 +602,7 @@ function createRegistry(s, { log = console } = {}) {
         const entries = [];
         for (const [model, list] of byModel) {
             const scores = list.map((r) => r.score);
+            const cleanScores = scores.filter((v) => v != null);
             const costs = list.map((r) => r.cost_usd);
             const times = list.map((r) => r.ms);
             const medScore = median(scores);
@@ -508,6 +626,12 @@ function createRegistry(s, { log = console } = {}) {
                 speed: medScore != null && medMs ? Math.round((medScore / (medMs / 60000)) * 1000) / 1000 : null,
                 consistency: spreads.length ? Math.round(median(spreads) * 1000) / 1000 : null,
                 sessions: sessions.size,
+                // What the runs actually did, and the value metric of the rules: cost per solved task = the cost
+                // of an attempt divided by the success rate (the median score / 100).
+                min_score: cleanScores.length ? Math.min(...cleanScores) : null,
+                max_score: cleanScores.length ? Math.max(...cleanScores) : null,
+                spread: cleanScores.length ? Math.round((Math.max(...cleanScores) - Math.min(...cleanScores)) * 1000) / 1000 : null,
+                cost_per_solved: medScore > 0 && medCost > 0 ? Math.round((medCost / (medScore / 100)) * 1e6) / 1e6 : null,
             };
             entries.push(entry);
         }
@@ -522,6 +646,24 @@ function createRegistry(s, { log = console } = {}) {
             if (av === bv) return a.model.localeCompare(b.model);
             return ascending ? av - bv : bv - av;
         });
+        // Ranks are bands, not places: models whose score intervals overlap share a band. The interval is the
+        // run-to-run spread here (a private set has too few runs for a bootstrap to say more).
+        if (metric === 'score') {
+            const bands = rankBands(entries.filter((e) => e.score != null).map((e) => ({
+                model: e.model,
+                rating: e.score,
+                ci_lower: e.min_score == null ? e.score : e.min_score,
+                ci_upper: e.max_score == null ? e.score : e.max_score,
+            })));
+            const bandOf = new Map();
+            for (const band of bands) for (const model of band.models) bandOf.set(model, band);
+            for (const e of entries) {
+                const band = bandOf.get(e.model);
+                e.band = band ? band.label : null;
+                e.band_from = band ? band.from : null;
+                e.band_to = band ? band.to : null;
+            }
+        }
         return { benchmark: ref.id, metric, entries };
     }
 
@@ -621,8 +763,12 @@ function createRegistry(s, { log = console } = {}) {
 
     return {
         createBenchmark, getBenchmark, getVersion, latestVersion, getDefinition, saveDraft, freezeVersion,
-        forkBenchmark, listBenchmarks, publishRun, getRun, compareRuns, rankings, percentile, listRuns, modelSummary, runCounts,
+        forkBenchmark, setVisibility, findShared, publicDatasetLines,
+        listBenchmarks, publishRun, getRun, compareRuns, rankings, percentile, listRuns, modelSummary, runCounts,
     };
 }
 
-module.exports = { createRegistry, RegistryError, hashDefinition, canonical, median, parseRef };
+module.exports = {
+    createRegistry, RegistryError, hashDefinition, canonical, median, parseRef,
+    canViewBenchmark, shareTokenHash, shareTokenMatches, newShareToken,
+};

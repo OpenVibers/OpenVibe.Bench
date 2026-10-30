@@ -7,6 +7,7 @@
  * something the API refuses.
  */
 const { createServiceTokenClient } = require('openvibe-sdk/auth');
+const { canViewBenchmark } = require('./registry');
 
 const CONFIRM_ABOVE_USD = 1;
 const HARNESS_TTL_MS = 10 * 60 * 1000;
@@ -43,6 +44,15 @@ function createLauncher({ config, registry, fetchImpl = globalThis.fetch, log = 
         }
         const definition = await registry.getDefinition(String(id), { reveal: false });
         if (!definition) return fail(404, 'bench.benchmark_not_found', 'No such benchmark.');
+        // A private benchmark is its owner's: another signed-in person cannot start it, even by knowing its id.
+        if (!canViewBenchmark(definition.benchmark, { subject: principal.subject })) {
+            return fail(404, 'bench.benchmark_not_found', 'No such benchmark.');
+        }
+        // A set made from a person's own prompts is compared on 3 to 6 models, as the paste form says.
+        if (Array.isArray(definition.benchmark.tags) && definition.benchmark.tags.includes('your-prompts')
+            && (models.length < 3 || models.length > 6)) {
+            return fail(400, 'bench.prompt_models', 'Pick 3 to 6 models for a benchmark made from your own prompts.');
+        }
         const cost = estimate(definition.definition, { models, harnesses, repeat });
         if ((cost == null || cost > CONFIRM_ABOVE_USD) && confirm !== true) {
             return { status: 409, body: { code: 'bench.confirm_cost', cost_estimate_usd: cost, confirm_required: true, ...(cost == null ? { detail: 'This benchmark sets no dollar limit per task, so its cost depends on the models.' } : {}) } };

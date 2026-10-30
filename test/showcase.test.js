@@ -28,7 +28,7 @@ const HOSTILE = [
         const r = await t.get('/api/v1/kinds');
         assert.strictEqual(r.status, 200, r.text);
         const byId = new Map(r.json().kinds.map((k) => [k.id, k]));
-        assert.strictEqual(r.json().kinds.length, 24);
+        assert.strictEqual(r.json().kinds.length, 25);
         const want = ['games.play', 'games.three', 'design.svg', 'design.motion', 'design.ui', 'design.dataviz', 'design.model3d', 'design.shader', 'design.interface'];
         for (const id of want) {
             const k = byId.get(id);

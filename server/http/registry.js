@@ -23,6 +23,7 @@ const { http } = require('openvibe-contracts');
 const { asyncRouter } = require('./router');
 const { sameOrigin } = require('./same-origin');
 const { validateBenchmark, validateRun } = require('../bench/validate');
+const { canViewBenchmark } = require('../bench/registry');
 
 function createRegistryApi(ctx) {
     const { config, principal, registry } = ctx;
@@ -66,6 +67,13 @@ function createRegistryApi(ctx) {
         if (p.kind === 'app' && p.hasCapability('bench.run.publish')) return true;
         return false;
     };
+
+    /** The caller's view of a benchmark: its owner, or the executor that must read the tasks. */
+    const viewerOf = (req) => ({
+        subject: subjectOf(req),
+        executor: req.principal.kind === 'app' && req.principal.hasCapability('bench.run.publish'),
+    });
+    const mayRead = (req, benchmark) => canViewBenchmark(benchmark, viewerOf(req));
 
     // ── Benchmarks ───────────────────────────────────────────
     r.post('/benchmarks', actor('bench.benchmark.write'), async (req, res) => {
@@ -127,6 +135,17 @@ function createRegistryApi(ctx) {
         } catch (err) { return failed(res, err); }
     });
 
+    r.post('/benchmarks/:id/share', actor('bench.benchmark.write'), async (req, res) => {
+        const b = req.body && typeof req.body === 'object' ? req.body : {};
+        const subject = subjectOf(req) || req.principal.requester;
+        try {
+            const out = await registry.setVisibility(String(req.params.id || ''), { visibility: b.visibility, subject });
+            if (!out.ok) return problem(res, out.status || 400, out.code || 'bench.invalid', out.message || 'invalid visibility');
+            res.set('Cache-Control', 'no-store');
+            return res.json({ benchmark: out.benchmark, token: out.token, share_path: out.share_path });
+        } catch (err) { return failed(res, err); }
+    });
+
     r.get('/benchmarks', async (req, res) => {
         try {
             // ?mine=1 adds the caller's own unlisted and private benchmarks; nobody else ever sees those in a list.
@@ -138,7 +157,7 @@ function createRegistryApi(ctx) {
                 q: req.query.q ? String(req.query.q) : null,
                 limit: req.query.limit ? Number(req.query.limit) : 50,
             });
-            res.set('Cache-Control', 'public, max-age=60');
+            res.set('Cache-Control', mine ? 'private, no-store' : 'public, max-age=60');
             return res.json({ count: list.length, benchmarks: list });
         } catch (err) { return failed(res, err); }
     });
@@ -146,16 +165,18 @@ function createRegistryApi(ctx) {
     r.get('/benchmarks/:id', async (req, res) => {
         try {
             const ref = String(req.params.id || '');
-            // The holdout goes to the executor and to the benchmark's owner; to nobody else.
-            let reveal = mayReveal(req);
-            if (!reveal && req.principal.kind === 'user') {
-                const owner = await registry.getBenchmark(ref.split('@')[0]);
-                reveal = !!(owner && owner.owner === req.principal.subject);
-            }
-            const out = await registry.getDefinition(ref, { reveal });
+            const out = await registry.getDefinition(ref, { reveal: false });
             if (!out) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
-            // A private benchmark answers only its owner and the executor; to everyone else it does not exist.
-            if (out.benchmark.visibility === 'private' && !reveal) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
+            // A private benchmark answers only its owner and the executor; a shared unlisted one only its owner by
+            // id (the token link is the way in). Everyone else gets a 404, not a "forbidden".
+            if (!mayRead(req, out.benchmark)) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
+            const view = viewerOf(req);
+            const owner = view.subject != null && String(out.benchmark.owner) === String(view.subject);
+            const reveal = mayReveal(req) || owner;
+            if (reveal) {
+                const full = await registry.getDefinition(ref, { reveal: true });
+                if (full) { out.definition = full.definition; out.version = full.version; }
+            }
             res.set('Cache-Control', out.benchmark.visibility === 'public' ? 'public, max-age=60' : 'private, no-store');
             return res.json({
                 benchmark: out.benchmark,
@@ -205,6 +226,10 @@ function createRegistryApi(ctx) {
         const check = validateRun({ ...doc, id: doc.id || 'brn_00000000000000000000000000' });
         if (!check.valid) return invalid(res, check.errors.map((e) => `${e.path} ${e.message}`).join('; '));
         try {
+            // A run may only be published on a benchmark its author may read: another person's private one is a 404.
+            const bmId = String(doc.benchmark_id || doc.benchmark || '').split('@')[0];
+            const bm = bmId ? await registry.getBenchmark(bmId) : null;
+            if (bm && !mayRead(req, bm)) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
             const out = await registry.publishRun(doc, { provenance, subject });
             if (!out.ok) return problem(res, out.status || 400, out.code || 'bench.invalid', out.message || 'invalid run');
             res.set('Location', `/api/v1/runs/${out.run.id}`);
@@ -216,7 +241,9 @@ function createRegistryApi(ctx) {
         try {
             const run = await registry.getRun(String(req.params.id || ''));
             if (!run) return problem(res, 404, 'bench.run_not_found', 'No such run.');
-            res.set('Cache-Control', 'public, max-age=60');
+            const bm = await registry.getBenchmark(run.benchmark_id);
+            if (bm && !mayRead(req, bm)) return problem(res, 404, 'bench.run_not_found', 'No such run.');
+            res.set('Cache-Control', bm && bm.visibility === 'public' ? 'public, max-age=60' : 'private, no-store');
             return res.json({ run });
         } catch (err) { return failed(res, err); }
     });
@@ -229,8 +256,30 @@ function createRegistryApi(ctx) {
         try {
             const out = await registry.compareRuns(refs);
             if (!out) return problem(res, 404, 'bench.run_not_found', 'No such run.');
-            res.set('Cache-Control', 'public, max-age=60');
-            return res.json({ compare: out });
+            // One unreadable run hides itself; if none is readable the comparison does not exist.
+            const allowed = [];
+            let allPublic = true;
+            for (const run of out.runs) {
+                const bm = await registry.getBenchmark(run.benchmark_id);
+                if (!bm || mayRead(req, bm)) allowed.push(run);
+                if (!bm || bm.visibility !== 'public') allPublic = false;
+            }
+            if (!allowed.length) return problem(res, 404, 'bench.run_not_found', 'No such run.');
+            const taskIds = out.task_ids;
+            allowed.forEach((run) => { for (const t of run.tasks) if (!taskIds.includes(t.task_id)) taskIds.push(t.task_id); });
+            const compare = {
+                runs: allowed,
+                task_ids: taskIds,
+                rows: taskIds.map((taskId) => ({
+                    task_id: taskId,
+                    scores: allowed.map((run) => {
+                        const t = run.tasks.find((x) => x.task_id === taskId);
+                        return t ? t.score : null;
+                    }),
+                })),
+            };
+            res.set('Cache-Control', allPublic ? 'public, max-age=60' : 'private, no-store');
+            return res.json({ compare });
         } catch (err) { return failed(res, err); }
     });
 
@@ -242,6 +291,8 @@ function createRegistryApi(ctx) {
             return invalid(res, 'metric is score, value, speed or consistency');
         }
         try {
+            const bm = await registry.getBenchmark(benchmark.split('@')[0]);
+            if (!bm || !mayRead(req, bm)) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
             const out = await registry.rankings({
                 benchmark,
                 metric,
@@ -250,7 +301,7 @@ function createRegistryApi(ctx) {
                 includeSubmitted: String(req.query.include_submitted || '') === 'true',
             });
             if (!out) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
-            res.set('Cache-Control', 'public, max-age=60');
+            res.set('Cache-Control', bm.visibility === 'public' ? 'public, max-age=60' : 'private, no-store');
             return res.json({ rankings: out });
         } catch (err) { return failed(res, err); }
     });
@@ -262,9 +313,11 @@ function createRegistryApi(ctx) {
         if (!model) return invalid(res, 'model is required: ?model=…');
         if (req.query.score == null) return invalid(res, 'score is required: ?score=…');
         try {
+            const bm = await registry.getBenchmark(benchmark.split('@')[0]);
+            if (!bm || !mayRead(req, bm)) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
             const out = await registry.percentile({ benchmark, model, score: Number(req.query.score) });
             if (!out) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
-            res.set('Cache-Control', 'public, max-age=60');
+            res.set('Cache-Control', bm.visibility === 'public' ? 'public, max-age=60' : 'private, no-store');
             return res.json({ percentile: out });
         } catch (err) { return failed(res, err); }
     });

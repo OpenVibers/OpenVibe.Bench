@@ -32,7 +32,7 @@ const { BenchError } = require('../store');
 const boardLib = require('../rating/board');
 
 function createApi(ctx) {
-    const { config, s, principal, bench } = ctx;
+    const { config, s, principal, bench, registry } = ctx;
     const r = asyncRouter();
 
     r.use(express.json({ limit: '64kb' }));
@@ -223,6 +223,17 @@ function createApi(ctx) {
             if (!out) return problem(res, 404, 'bench.model_not_found', 'No such model.');
             res.set('Cache-Control', 'public, max-age=60');
             return res.json(out);
+        } catch (err) { return failed(res, err); }
+    });
+
+    // The open data for the benchmark registry (B11): public benchmarks, their visible tasks and every run under
+    // them. Private and unlisted rows are never read here, and no person id appears in a line.
+    r.get('/datasets/benchmarks.jsonl', async (req, res) => {
+        try {
+            const text = await registry.publicDatasetLines();
+            res.set('Cache-Control', 'public, max-age=60');
+            res.set('Content-Disposition', 'attachment; filename="bench-benchmarks.jsonl"');
+            return res.type('application/x-ndjson').send(text);
         } catch (err) { return failed(res, err); }
     });
 
