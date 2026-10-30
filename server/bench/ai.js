@@ -245,7 +245,9 @@ function createBenchAi({ config, fetchImpl = globalThis.fetch, log = console }) 
         const provider = String(prov.provider || run.provider || (slot && slot.provider) || 'ai').slice(0, 80);
         const ui_check = run.ui_check || (run.output && run.output.ui_check) || null;
         const html = /html_page/.test(kind || '') ? sanitizeHtml(text, { maxBytes: ai.maxHtmlBytes }) : text;
-        const payload = /html_page/.test(kind || '') ? { html } : { text };
+        // A showcase entry renders from its type's field (render.js payloadFor): { html } for a page that runs in the
+        // isolated frame (not sanitized: its scripts are the point), { svg } or { glsl }. html_page stays the inert sandbox.
+        const payload = /html_page/.test(kind || '') ? { html } : require('./render').payloadFor(kind, text);
         return {
             payload,
             html,

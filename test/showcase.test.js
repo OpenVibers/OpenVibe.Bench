@@ -113,6 +113,15 @@ const HOSTILE = [
         assert.ok(own.includes('<script nonce="N2" type="module">') && !own.includes('guess'), 'a guessed nonce is replaced by ours');
     });
 
+    await check('a generated answer renders from its entry type\'s field (10-30: every seeded entry was { text } and showed nothing)', async () => {
+        assert.deepStrictEqual(renderLib.payloadFor('ui_page', 'Here you go:\n```html\n<p>hi</p>\n```\nEnjoy.'), { html: '<p>hi</p>' });
+        assert.deepStrictEqual(renderLib.payloadFor('svg_art', '<svg viewBox="0 0 1 1"></svg>'), { svg: '<svg viewBox="0 0 1 1"></svg>' });
+        assert.deepStrictEqual(renderLib.payloadFor('shader_glsl', '```glsl\nvoid main(){}\n```'), { glsl: 'void main(){}' });
+        assert.deepStrictEqual(renderLib.payloadFor('model_answer', 'plain'), { text: 'plain' });
+        const doc = renderLib.modelDocument({ id: 'design.ui', entry: 'ui_page' }, { text: '```html\n<!doctype html><html><head></head><body><b>seeded</b></body></html>\n```' }, { nonce: 'N3' });
+        assert.ok(doc.includes('<b>seeded</b>') && !doc.includes('Nothing was generated'), 'an old { text } entry renders');
+    });
+
     await check('the render origin vendors three 0.170.0 for opaque-origin frames', async () => {
         const v = await t.get('/vendor/three.module.js');
         assert.strictEqual(v.status, 200);
