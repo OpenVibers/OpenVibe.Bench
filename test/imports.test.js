@@ -365,6 +365,8 @@ function multipart(filename, bytes) {
         assert.strictEqual(mirrored.source.kind, 'mirror');
         assert.strictEqual(mirrored.source.licence, 'Apache-2.0');
         assert.ok(mirrored.source.source_url, 'it says where it came from');
+        const page = await t.ctx.registry.getBenchmark(applied.written[0].benchmark);
+        assert.match(page.description, /Licence: Apache-2\.0\./, 'the benchmark names its licence (it said "undefined", 2026-10-30)');
 
         const again = await mirror.apply('helm', { group: 'mmlu', release: 'v1.13.0' });
         assert.strictEqual(again.written.length, 0, 'the same model, version and source do not land twice');

@@ -184,6 +184,8 @@ function createMirror({ s, registry, fetchImpl = globalThis.fetch, log = console
         };
     }
 
+    // The caller passes the licence's name (looked.licence); an object from the licence check works too.
+    const licenceName = (l) => (typeof l === 'string' ? l : (l && l.licence) || 'unknown');
     /** The benchmark a mirrored group becomes: one per source and group, public, so anybody can read it. */
     async function benchmarkFor(row, { source, licence }) {
         const suite = matchSuite(row.benchmark);
@@ -195,7 +197,7 @@ function createMirror({ s, registry, fetchImpl = globalThis.fetch, log = console
         const made = await registry.createBenchmark({
             owner: 'openvibe',
             title: (suite ? suite.title : row.benchmark) + ' (' + source.title + ')',
-            description: 'Mirrored from ' + source.title + '. Licence: ' + licence.licence + '. ' + source.attribution + '.',
+            description: 'Mirrored from ' + source.title + '. Licence: ' + licenceName(licence) + '. ' + source.attribution + '.',
             kind: 'text.answer',
             tags: tags.concat([tag]),
             visibility: 'public',
