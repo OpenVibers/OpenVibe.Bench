@@ -18,7 +18,24 @@ function createRenderRoutes(ctx) {
         const row = await ctx.s.db.maybe(
             'SELECT e.id, e.payload, e.error, r.kind_id FROM bench_entries e JOIN bench_rounds r ON r.id = e.round_id WHERE e.id = $1',
             [String(id || '')]);
-        if (!row) return null;
+        if (!row) {
+            const match = /^((?:brn_)[0-9A-HJKMNP-TV-Z]{26})~([A-Za-z0-9_-]{1,120})$/.exec(String(id || ''));
+            if (!match) return null;
+            const taskId = Buffer.from(match[2], 'base64url').toString('utf8');
+            const runTask = await ctx.s.db.maybe(
+                `SELECT t.artifacts, v.definition FROM bench_run_tasks t
+                 JOIN bench_runs r ON r.id = t.run_id
+                 JOIN bench_benchmark_versions v ON v.benchmark_id = r.benchmark_id AND v.version = r.benchmark_version
+                 WHERE t.run_id = $1 AND t.task_id = $2`, [match[1], taskId]);
+            if (!runTask) return null;
+            let artifacts = runTask.artifacts;
+            let definition = runTask.definition;
+            if (typeof artifacts === 'string') { try { artifacts = JSON.parse(artifacts); } catch { artifacts = []; } }
+            if (typeof definition === 'string') { try { definition = JSON.parse(definition); } catch { definition = {}; } }
+            const artifact = (Array.isArray(artifacts) ? artifacts : []).find((a) => a && a.payload);
+            if (!artifact) return null;
+            return { id: String(id), payload: artifact.payload, error: null, kind: kindById(definition && definition.kind) };
+        }
         let payload = row.payload;
         if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch { payload = {}; } }
         return { id: row.id, payload: payload || {}, error: row.error || null, kind: kindById(row.kind_id) };
