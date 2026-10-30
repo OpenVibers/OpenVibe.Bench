@@ -585,6 +585,12 @@ html, body { margin: 0; background: var(--bg-primary, #0a0f1c); color: var(--tex
 .fold-body { display: none; }
 .fold-toggle:checked ~ .fold-body { display: block; }
 .fold-body > .bm-section { margin-top: 14px; }
+/* The title row names the part, so a part that keeps its own heading gives way to it on a phone (and keeps it where
+   there is room). */
+@media (max-width: 640px) {
+  .fold-bare .fold-body > section > h2, .fold-bare .fold-body > .sc-sec > h2, .fold-bare .fold-body .ov-shipped-home h3 { display: none; }
+}
+.fold:not(.fold-bare) .fold-body .ov-shipped-home h3 { display: none; }
 @media (min-width: 641px) {
   .fold { margin-top: clamp(28px, 4vw, 44px); }
   .fold-toggle { display: none; }
@@ -592,6 +598,7 @@ html, body { margin: 0; background: var(--bg-primary, #0a0f1c); color: var(--tex
   .fold-h > h2 { margin: 0; font-size: 1.2rem; }
   .fold-mark { display: none; }
   .fold-body { display: block; }
-  .fold-nohead > .fold-h { display: none; }
-  .fold-body > .bm-why { margin-top: 0; }
+  .fold-bare > .fold-h { display: none; }
+  .fold-bare { margin-top: 0; }
+  .fold:not(.fold-bare) .fold-body > .bm-section { margin-top: 0; }
 }
