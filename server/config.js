@@ -84,6 +84,11 @@ function load(env = process.env) {
             maxPrompt: Math.max(20, int(env.BENCH_MAX_PROMPT, 4000)),
             evalsPerDay: Math.max(1, int(env.BENCH_EVALS_PER_DAY, 20)),
             provisionalGames: Math.max(1, int(env.BENCH_PROVISIONAL_GAMES, 10)),
+            // Battles: how many votes one person and one network may cast.
+            battlePersonPerHour: Math.max(1, int(env.BENCH_BATTLE_PERSON_PER_HOUR, 30)),
+            battlePersonPerDay: Math.max(1, int(env.BENCH_BATTLE_PERSON_PER_DAY, 200)),
+            battleNetworkPerHour: Math.max(1, int(env.BENCH_BATTLE_NETWORK_PER_HOUR, 120)),
+            battleNetworkPerDay: Math.max(1, int(env.BENCH_BATTLE_NETWORK_PER_DAY, 1000)),
         },
     };
 }

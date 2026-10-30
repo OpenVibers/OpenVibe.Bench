@@ -29,6 +29,7 @@ const { asyncRouter } = require('./router');
 const { sameOrigin } = require('./same-origin');
 const { kindById } = require('../kinds');
 const { BenchError } = require('../store');
+const boardLib = require('../rating/board');
 
 function createApi(ctx) {
     const { config, s, principal, bench } = ctx;
@@ -222,6 +223,28 @@ function createApi(ctx) {
             if (!out) return problem(res, 404, 'bench.model_not_found', 'No such model.');
             res.set('Cache-Control', 'public, max-age=60');
             return res.json(out);
+        } catch (err) { return failed(res, err); }
+    });
+
+    // The open vote dump (stage B9): every human vote, no voter ids. It comes before the kind dataset route,
+    // because '/datasets/votes.jsonl' would otherwise be read as the kind 'votes'.
+    r.get('/datasets/votes.jsonl', async (req, res) => {
+        try {
+            const result = await boardLib.board(ctx);
+            const text = boardLib.dumpJsonl(result);
+            res.set('Cache-Control', 'public, max-age=60');
+            res.set('Content-Disposition', 'attachment; filename="bench-votes.jsonl"');
+            res.set('X-Bench-Votes', String(result.votes.length));
+            return res.type('application/x-ndjson').send(text);
+        } catch (err) { return failed(res, err); }
+    });
+
+    // The board the votes make: raw and style controlled, with intervals and bands.
+    r.get('/ratings', async (req, res) => {
+        try {
+            const result = await boardLib.board(ctx);
+            res.set('Cache-Control', 'public, max-age=60');
+            return res.json({ board: boardLib.boardView(result) });
         } catch (err) { return failed(res, err); }
     });
 

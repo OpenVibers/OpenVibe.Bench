@@ -21,6 +21,9 @@ const NAV = [
     { label: 'Home', href: '/' },
     { label: 'Benchmarks', href: '/benchmarks' },
     { label: 'Showcase', href: '/showcase' },
+    { label: 'Gallery', href: '/gallery' },
+    { label: 'Battles', href: '/battle' },
+    { label: 'Ratings', href: '/ratings' },
     { label: 'Docs', href: '/docs' },
 ];
 
@@ -79,6 +82,7 @@ ${appIcon.headTags({ site: 'bench' })}
 <link rel="stylesheet" href="${ovServe.url('room.css')}">
 <link rel="stylesheet" href="${asset('css/bench.css')}">
 <script src="${asset('js/bench.js')}" defer></script>
+${o.headExtra || ''}
 ${render(scripts)}
 <meta name="ov-boost" content="bench@${esc(RELEASE)}">
 <script src="${require('openvibe-shared/serve').url('boost.js')}" data-main="#main" defer></script>`,
