@@ -251,11 +251,18 @@ function multipart(filename, bytes) {
     const alice = t.network.addUser('alice');
     const bob = t.network.addUser('bob');
 
-    await check('the upload form is there and asks for a sign-in', async () => {
+    await check('the upload form sends a visitor who is not signed in to the sign-in', async () => {
         const out = await t.get('/imports');
+        assert.strictEqual(out.status, 303, out.text.slice(0, 200));
+        assert.ok(/\/auth\/login\?next=%2Fimports/.test(String(out.headers.get('location'))),
+            'it goes to the sign-in and comes back: ' + out.headers.get('location'));
+    });
+
+    await check('the upload form is there for a signed-in person', async () => {
+        const out = await t.get('/imports', { as: t.network.addUser('signer') });
         assert.strictEqual(out.status, 200, out.text.slice(0, 200));
         assert.ok(/Import a results file/.test(out.text), 'the page says what it is');
-        assert.ok(/Sign in/.test(out.text), 'it asks for a sign-in');
+        assert.ok(/Inspect AI/.test(out.text) && /Harbor/.test(out.text), 'it names the tools it reads');
     });
 
     let importId = null;

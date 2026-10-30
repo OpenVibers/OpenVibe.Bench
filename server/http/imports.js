@@ -25,7 +25,9 @@ function createImportRoutes(ctx) {
     const upload = async (req, res) => {
         const subject = subjectOf(req);
         const loginUrl = '/auth/login?next=' + encodeURIComponent('/imports');
-        const imports = subject ? await ctx.imports.listFor(subject, { limit: 10 }) : [];
+        // The upload is the person's own: a visitor who is not signed in goes to the sign-in and comes back.
+        if (!subject) return res.redirect(303, loginUrl);
+        const imports = await ctx.imports.listFor(subject, { limit: 10 });
         return page(req, res, {
             index: false,
             title: 'Import a results file',
