@@ -56,6 +56,38 @@ published set, fork it — the fork records the parent, and the old version stay
 }
 ```
 
+## The contracts
+
+Bench speaks the published shapes, from `openvibe-contracts` **v0.244.0**:
+
+| Contract | What it is |
+|---|---|
+| `bench.benchmark@1` | the document a frozen version holds, exactly |
+| `bench.run@1` | the document a run is, exactly |
+
+The service reads both from the package — there is no second copy — and checks every document against them before it
+is stored, so a run that is not a `bench.run@1` run is refused with `bench.invalid` and a field-level error. A run
+that is read back carries its contract document under `document`:
+
+```json
+{
+  "run": {
+    "id": "brn_…",
+    "provenance": "verified",
+    "document": { "id": "brn_…", "benchmark": "bmk_…@1", "provenance": "verified", "…": "…" }
+  }
+}
+```
+
+The capabilities the registry uses are published too: `bench.benchmark.write`, `bench.run.publish` and
+`bench.run.read`.
+
+## The holdout
+
+A task with `holdout: true` keeps its prompt from everyone but two callers: the executor (a service token with
+`bench.run.publish`) and the benchmark's owner. Everybody else gets the task listed with its prompt withheld, so the
+set cannot be tuned to.
+
 ## Running it
 
 A run (the contract is `bench.run@1`) names the benchmark `id@version`, the model, the route, the provider, the

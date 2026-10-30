@@ -15,6 +15,7 @@
  */
 const crypto = require('crypto');
 const { ids } = require('openvibe-contracts');
+const { contractRun, checkContract } = require('./validate');
 
 const num = (v, d = 0) => (v == null || v === '' || Number.isNaN(Number(v)) ? d : Number(v));
 const iso = (v) => (v == null ? null : (v instanceof Date ? v.toISOString() : String(v)));
@@ -106,6 +107,24 @@ function wireRun(row, tasks = null) {
         created_at: iso(row.created_at),
     };
     if (tasks) out.tasks = tasks;
+    // The published bench.run@1 document: what a caller reads back is what the contract says.
+    out.document = contractRun({
+        id: out.id,
+        benchmark: out.benchmark,
+        model: out.model,
+        route: out.route,
+        provider: out.provider,
+        harness: out.harness,
+        settings: out.settings,
+        executor: out.executor,
+        hardware: out.hardware,
+        tasks: tasks || [],
+        score: out.score,
+        cost_usd: out.cost_usd,
+        ms: out.ms,
+        tokens: out.tokens,
+        provenance: out.provenance,
+    }, out.created_at);
     return out;
 }
 
@@ -344,6 +363,23 @@ function createRegistry(s, { log = console } = {}) {
         const executorKind = provenance === 'submitted' ? 'submitted' : String((doc.executor && doc.executor.kind) || 'codes');
         const executor = { kind: executorKind, id: String((doc.executor && doc.executor.id) || subject || 'unknown') };
         const id = s.newId('brn');
+        // The published contract has the last word: a run that is not a bench.run@1 document is refused.
+        const contract = contractRun({
+            ...doc,
+            id,
+            benchmark: `${benchmarkId}@${version}`,
+            executor,
+            tasks,
+            score: num(doc.score, 0),
+            cost_usd: num(doc.cost_usd, 0),
+            ms: num(doc.ms, 0),
+            tokens: num(doc.tokens, 0),
+            provenance,
+        }, s.iso());
+        const contractCheck = checkContract('bench.run@1', contract);
+        if (!contractCheck.valid) {
+            return refusal(400, 'bench.invalid', contractCheck.errors.map((e) => e.message).join('; '));
+        }
         const score = num(doc.score, 0);
         const cost = num(doc.cost_usd, 0);
         const ms = num(doc.ms, 0);

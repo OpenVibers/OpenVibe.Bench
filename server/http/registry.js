@@ -143,7 +143,13 @@ function createRegistryApi(ctx) {
     r.get('/benchmarks/:id', async (req, res) => {
         try {
             const ref = String(req.params.id || '');
-            const out = await registry.getDefinition(ref, { reveal: mayReveal(req) });
+            // The holdout goes to the executor and to the benchmark's owner; to nobody else.
+            let reveal = mayReveal(req);
+            if (!reveal && req.principal.kind === 'user') {
+                const owner = await registry.getBenchmark(ref.split('@')[0]);
+                reveal = !!(owner && owner.owner === req.principal.subject);
+            }
+            const out = await registry.getDefinition(ref, { reveal });
             if (!out) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
             res.set('Cache-Control', 'public, max-age=60');
             return res.json({

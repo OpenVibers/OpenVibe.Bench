@@ -10,9 +10,12 @@
  * The rules mirror the contract's: the same required fields, the same enums, the same ranges.
  */
 
+const { assertValid } = require('openvibe-contracts');
+
 const isStr = (v) => typeof v === 'string';
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
+const num = (v, d = 0) => (v == null || v === '' || Number.isNaN(Number(v)) ? d : Number(v));
 
 /** The contract's id patterns. */
 const BENCHMARK_ID = /^bmk_[0-9A-HJKMNP-TV-Z]{26}$/;
@@ -102,4 +105,62 @@ function validateRun(doc) {
     return { valid: e.valid, errors: e.list };
 }
 
-module.exports = { validateBenchmark, validateRun, Errors, BENCHMARK_ID, RUN_ID, BENCHMARK_REF, VISIBILITIES, EXECUTOR_KINDS, PROVENANCES };
+
+/**
+ * The bench.run@1 document for a run Bench is about to store: exactly the published shape, nothing else. The extra
+ * fields Bench keeps for itself (the benchmark id and version, the session) stay in the database, not in the
+ * contract, so what a caller reads back is what the contract says.
+ */
+function contractRun(doc, createdAt) {
+    const harness = (doc.harness && typeof doc.harness === 'object') ? doc.harness : {};
+    const settings = (doc.settings && typeof doc.settings === 'object') ? doc.settings : {};
+    const executor = (doc.executor && typeof doc.executor === 'object') ? doc.executor : {};
+    const tasks = (Array.isArray(doc.tasks) ? doc.tasks : []).map((t) => {
+        const out = {
+            task_id: String(t.task_id || ''),
+            score: num(t.score),
+            cost_usd: num(t.cost_usd),
+            ms: Math.round(num(t.ms)),
+            tokens: Math.round(num(t.tokens)),
+            artifacts: (Array.isArray(t.artifacts) ? t.artifacts : [])
+                .map((a) => ({ kind: String(a.kind || 'file'), url: String(a.url || '') }))
+                .filter((a) => a.url),
+        };
+        if (t.transcript_url) out.transcript_url = String(t.transcript_url);
+        return out;
+    });
+    const out = {
+        id: String(doc.id || ''),
+        benchmark: String(doc.benchmark || ''),
+        model: String(doc.model || ''),
+        route: (doc.route && typeof doc.route === 'object') ? doc.route : {},
+        provider: String(doc.provider || ''),
+        harness: { name: String(harness.name || ''), version: String(harness.version || '') },
+        settings: {
+            temperature: settings.temperature == null ? null : Number(settings.temperature),
+            effort: settings.effort == null ? null : String(settings.effort),
+        },
+        executor: { kind: String(executor.kind || ''), id: String(executor.id || '') },
+        tasks,
+        score: num(doc.score),
+        cost_usd: num(doc.cost_usd),
+        ms: Math.round(num(doc.ms)),
+        tokens: Math.round(num(doc.tokens)),
+        provenance: String(doc.provenance || ''),
+        created_at: createdAt || new Date().toISOString(),
+    };
+    if (doc.hardware != null) out.hardware = doc.hardware;
+    return out;
+}
+
+/** The published contract has the last word: a document that does not match it is refused. */
+function checkContract(name, doc) {
+    try {
+        assertValid(name, doc);
+        return { valid: true, errors: [] };
+    } catch (err) {
+        return { valid: false, errors: [{ path: '/', message: (err && err.message) || `does not match ${name}` }] };
+    }
+}
+
+module.exports = { validateBenchmark, validateRun, contractRun, checkContract, Errors, BENCHMARK_ID, RUN_ID, BENCHMARK_REF, VISIBILITIES, EXECUTOR_KINDS, PROVENANCES };
