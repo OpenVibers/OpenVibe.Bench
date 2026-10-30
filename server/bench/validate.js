@@ -90,14 +90,14 @@ function validateRun(doc) {
         doc.tasks.forEach((t, i) => {
             if (!isObj(t)) { e.add(`/tasks/${i}`, 'must be an object'); return; }
             if (!isStr(t.task_id) || !t.task_id.trim()) e.add(`/tasks/${i}/task_id`, 'is required');
-            if (!isNum(t.score) || t.score < 0 || t.score > 100) e.add(`/tasks/${i}/score`, 'must be 0-100');
+            if (t.score != null && (!isNum(t.score) || t.score < 0 || t.score > 100)) e.add(`/tasks/${i}/score`, 'must be null or 0-100');
             if (!isNum(t.cost_usd) || t.cost_usd < 0) e.add(`/tasks/${i}/cost_usd`, 'must be 0 or more');
             if (!isNum(t.ms) || t.ms < 0) e.add(`/tasks/${i}/ms`, 'must be 0 or more');
             if (!isNum(t.tokens) || t.tokens < 0) e.add(`/tasks/${i}/tokens`, 'must be 0 or more');
             if (!Array.isArray(t.artifacts)) e.add(`/tasks/${i}/artifacts`, 'must be an array');
         });
     }
-    if (!isNum(doc.score) || doc.score < 0 || doc.score > 100) e.add('/score', 'must be 0-100');
+    if (doc.score != null && (!isNum(doc.score) || doc.score < 0 || doc.score > 100)) e.add('/score', 'must be null or 0-100');
     if (!isNum(doc.cost_usd) || doc.cost_usd < 0) e.add('/cost_usd', 'must be 0 or more');
     if (!isNum(doc.ms) || doc.ms < 0) e.add('/ms', 'must be 0 or more');
     if (!isNum(doc.tokens) || doc.tokens < 0) e.add('/tokens', 'must be 0 or more');
@@ -118,7 +118,7 @@ function contractRun(doc, createdAt) {
     const tasks = (Array.isArray(doc.tasks) ? doc.tasks : []).map((t) => {
         const out = {
             task_id: String(t.task_id || ''),
-            score: num(t.score),
+            score: t.score == null ? null : num(t.score),
             cost_usd: num(t.cost_usd),
             ms: Math.round(num(t.ms)),
             tokens: Math.round(num(t.tokens)),
@@ -142,7 +142,7 @@ function contractRun(doc, createdAt) {
         },
         executor: { kind: String(executor.kind || ''), id: String(executor.id || '') },
         tasks,
-        score: num(doc.score),
+        score: doc.score == null ? null : num(doc.score),
         cost_usd: num(doc.cost_usd),
         ms: Math.round(num(doc.ms)),
         tokens: Math.round(num(doc.tokens)),

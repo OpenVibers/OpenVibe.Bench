@@ -102,6 +102,24 @@ function runDoc(benchmark, over = {}) {
         assert.strictEqual(submitted.json().run.executor.kind, 'submitted');
     });
 
+    await check('a human judged run publishes null scores and keeps its output on the framed render path', async () => {
+        const id = t.store.newId('brn');
+        const url = `https://bench-render.openvibe.services/render/w/${id}~dDE`;
+        const pending = runDoc(`${benchmarkId}@${version}`, {
+            id, score: null,
+            tasks: [{ task_id: 't1', score: null, cost_usd: 0.01, ms: 1200, tokens: 20,
+                artifacts: [{ kind: 'games.play', url, payload: { text: '<!doctype html><html><body><h1>Rendered benchmark output</h1></body></html>' } }] }],
+        });
+        const published = await t.get('/api/v1/runs', { bearer: publisher, json: pending });
+        assert.strictEqual(published.status, 201, published.text);
+        assert.strictEqual(published.json().run.score, null);
+        assert.strictEqual(published.json().run.tasks[0].score, null);
+        assert.strictEqual(published.json().run.tasks[0].artifacts[0].payload, undefined);
+        const rendered = await t.get(`/render/e/${id}~dDE`);
+        assert.strictEqual(rendered.status, 200, rendered.text);
+        assert.match(rendered.text, /Rendered benchmark output/);
+    });
+
     await check('a run is read back with its tasks', async () => {
         const list = await t.get(`/api/v1/benchmarks/${benchmarkId}`);
         const runs = await t.get(`/api/v1/runs/${list.json().definition ? '' : ''}`);

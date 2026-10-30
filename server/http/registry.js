@@ -34,7 +34,7 @@ function createRegistryApi(ctx) {
     }) : null;
     const r = asyncRouter();
 
-    r.use(express.json({ limit: '256kb' }));
+    r.use(express.json({ limit: '16mb' }));
     r.use((req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
     r.use(principal.middleware);
 
@@ -185,8 +185,9 @@ function createRegistryApi(ctx) {
         if (costEstimate > 1 && b.confirm !== true) return res.status(409).json({ code: 'bench.confirm_cost', cost_estimate_usd: costEstimate, confirm_required: true });
         try {
             if (!codesTokens) return problem(res, 503, 'bench.runner_unavailable', 'Bench has no Network client credentials for Codes.');
-            const response = await fetchImpl(config.codesRunUrl, {
-                method: 'POST', headers: { ...(await codesTokens.authHeaders()), 'content-type': 'application/json', 'x-ov-subject': p.subject },
+            const codesRunApi = new URL(`/api/v1/benchmarks/${encodeURIComponent(String(req.params.id))}/run`, config.codesRunUrl).toString();
+            const response = await fetchImpl(codesRunApi, {
+                method: 'POST', headers: { ...(await codesTokens.authHeaders()), 'content-type': 'application/json', 'x-ov-subject': p.subject, 'x-ov-user-token': p.token },
                 body: JSON.stringify({ benchmark: String(req.params.id), models, harnesses, repeat }),
                 signal: AbortSignal.timeout(15000),
             });

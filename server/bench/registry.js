@@ -15,7 +15,7 @@
  */
 const crypto = require('crypto');
 const { ids } = require('openvibe-contracts');
-const { contractRun, checkContract } = require('./validate');
+    const { contractRun, checkContract } = require('./validate');
 
 const num = (v, d = 0) => (v == null || v === '' || Number.isNaN(Number(v)) ? d : Number(v));
 const iso = (v) => (v == null ? null : (v instanceof Date ? v.toISOString() : String(v)));
@@ -97,7 +97,7 @@ function wireRun(row, tasks = null) {
         settings: json(row.settings, {}),
         executor: json(row.executor, {}),
         hardware: json(row.hardware, null),
-        score: num(row.score),
+        score: row.score == null ? null : num(row.score),
         cost_usd: num(row.cost_usd),
         ms: num(row.ms),
         tokens: num(row.tokens),
@@ -132,11 +132,11 @@ function wireTask(row) {
     if (!row) return null;
     return {
         task_id: row.task_id,
-        score: num(row.score),
+        score: row.score == null ? null : num(row.score),
         cost_usd: num(row.cost_usd),
         ms: num(row.ms),
         tokens: num(row.tokens),
-        artifacts: Array.isArray(json(row.artifacts, [])) ? json(row.artifacts, []) : [],
+        artifacts: (Array.isArray(json(row.artifacts, [])) ? json(row.artifacts, []) : []).map((a) => ({ kind: a.kind, url: a.url })).filter((a) => a.url),
         transcript_url: row.transcript_url || null,
     };
 }
@@ -341,6 +341,15 @@ function createRegistry(s, { log = console } = {}) {
      * run, which is badged and kept out of the default rankings.
      */
     async function publishRun(doc, { provenance, subject }) {
+        if (doc.id) {
+            const prior = await getRun(String(doc.id));
+            if (prior) {
+                if (prior.benchmark === String(doc.benchmark) && prior.model === String(doc.model) && prior.session === (doc.session || null)) {
+                    return { ok: true, run: prior };
+                }
+                return refusal(409, 'bench.run_id_conflict', 'That run id already names a different result.');
+            }
+        }
         const benchmarkId = String(doc.benchmark_id || (doc.benchmark || '').split('@')[0] || '');
         const version = num(doc.benchmark_version || (doc.benchmark || '').split('@')[1]);
         const versionRow = await getVersion(benchmarkId, version);
@@ -362,7 +371,7 @@ function createRegistry(s, { log = console } = {}) {
         // A submitted run has no executor: whatever the body says, the provenance decides.
         const executorKind = provenance === 'submitted' ? 'submitted' : String((doc.executor && doc.executor.kind) || 'codes');
         const executor = { kind: executorKind, id: String((doc.executor && doc.executor.id) || subject || 'unknown') };
-        const id = s.newId('brn');
+        const id = String(doc.id || s.newId('brn'));
         // The published contract has the last word: a run that is not a bench.run@1 document is refused.
         const contract = contractRun({
             ...doc,
@@ -370,17 +379,17 @@ function createRegistry(s, { log = console } = {}) {
             benchmark: `${benchmarkId}@${version}`,
             executor,
             tasks,
-            score: num(doc.score, 0),
+            score: doc.score == null ? null : num(doc.score, 0),
             cost_usd: num(doc.cost_usd, 0),
             ms: num(doc.ms, 0),
             tokens: num(doc.tokens, 0),
             provenance,
         }, s.iso());
-        const contractCheck = checkContract('bench.run@1', contract);
+        const contractCheck = checkContract('bench.run@2', contract);
         if (!contractCheck.valid) {
             return refusal(400, 'bench.invalid', contractCheck.errors.map((e) => e.message).join('; '));
         }
-        const score = num(doc.score, 0);
+        const score = doc.score == null ? null : num(doc.score, 0);
         const cost = num(doc.cost_usd, 0);
         const ms = num(doc.ms, 0);
         const tokens = num(doc.tokens, 0);
@@ -398,7 +407,7 @@ function createRegistry(s, { log = console } = {}) {
                 await db.exec(
                     `INSERT INTO bench_run_tasks (id, run_id, task_id, score, cost_usd, ms, tokens, artifacts, transcript_url, created_at)
                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10::timestamptz)`,
-                    [s.newId('brt'), id, String(t.task_id), num(t.score), num(t.cost_usd), num(t.ms), num(t.tokens),
+                    [s.newId('brt'), id, String(t.task_id), t.score == null ? null : num(t.score), num(t.cost_usd), num(t.ms), num(t.tokens),
                         JSON.stringify(Array.isArray(t.artifacts) ? t.artifacts : []), t.transcript_url == null ? null : String(t.transcript_url), s.iso()],
                 );
             }
@@ -475,6 +484,7 @@ function createRegistry(s, { log = console } = {}) {
             const medMs = median(times);
             const sessions = new Map();
             for (const r of list) {
+                if (r.score == null) continue;
                 const key = r.session || 'default';
                 if (!sessions.has(key)) sessions.set(key, []);
                 sessions.get(key).push(r.score);
@@ -516,7 +526,7 @@ function createRegistry(s, { log = console } = {}) {
         params.push(String(model));
         if (ref.version != null) { params.push(ref.version); sql += ' AND benchmark_version = $3'; }
         const rows = await db.many(sql, params);
-        const scores = rows.map((r) => num(r.score));
+        const scores = rows.filter((r) => r.score != null).map((r) => num(r.score));
         if (!scores.length) return { benchmark: ref.id, model: String(model), runs: 0, percentile: null, score: num(score) };
         const value = num(score);
         const below = scores.filter((v) => v < value).length;
