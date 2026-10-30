@@ -332,7 +332,8 @@ html, body { margin: 0; background: var(--bg-primary, #0a0f1c); color: var(--tex
 .rt-model { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 700; overflow-wrap: break-word; }
 .rt-score { font-weight: 800; font-variant-numeric: tabular-nums; }
 .rt-score-muted { color: var(--text-secondary, #96a7c2); font-weight: 650; }
-.rt-num { text-align: right; font-variant-numeric: tabular-nums; }
+.rt-ci { font-weight: 600; white-space: nowrap; }
+.rt-table td.rt-num { text-align: right; font-variant-numeric: tabular-nums; }
 .rt-band { display: inline-block; padding: 2px 10px; border-radius: 999px; background: color-mix(in srgb, var(--room-accent) 14%, transparent); color: var(--room-strong); font-size: .78rem; font-weight: 750; white-space: nowrap; }
 .rt-bar { display: block; width: 100%; height: 8px; margin-top: 6px; }
 .rt-bar-track { fill: color-mix(in srgb, var(--text-muted, #7386a3) 24%, transparent); }
@@ -348,15 +349,16 @@ html, body { margin: 0; background: var(--bg-primary, #0a0f1c); color: var(--tex
 @media (max-width: 560px) {
   .rt-table, .rt-table tbody { display: block; width: 100%; }
   .rt-table thead { display: none; }
-  .rt-table tr { display: grid; grid-template-columns: auto 1fr auto; gap: 6px 10px; padding: 12px 14px; border-bottom: 1px solid var(--border, #1f2d47); }
+  .rt-table tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 2.5em; gap: 6px 10px; padding: 12px 14px; border-bottom: 1px solid var(--border, #1f2d47); }
   .rt-table tbody tr:last-child { border-bottom: 0; }
   .rt-table td { display: block; padding: 0; border: 0; min-width: 0; width: auto; }
   .rt-col-band { grid-area: 1 / 1 / 2 / 2; }
   .rt-col-model { grid-area: 1 / 2 / 2 / 4; }
   .rt-col-controlled { grid-area: 2 / 1 / 3 / 2; }
   .rt-col-raw { grid-area: 2 / 2 / 3 / 3; }
-  .rt-col-votes { grid-area: 2 / 3 / 3 / 4; text-align: right; }
+  .rt-table td.rt-col-votes { grid-area: 2 / 3 / 3 / 4; text-align: right; }
   .rt-bar { height: 6px; margin-top: 4px; }
+  .rt-ci { display: block; font-size: .78rem; color: var(--text-secondary, #96a7c2); }
 }
 
 /* ---- Pick for me (B10): plain controls, then the frontier ---- */
