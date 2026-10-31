@@ -15,7 +15,7 @@ const { boot, check, done } = require('./helpers/boot');
         assert.strictEqual(r.status, 200, r.text.slice(0, 300));
         const home = r.text;
         for (const [id, title] of [['bm-why', 'What Bench promises'], ['bm-kinds', 'For developers: the arena kinds']]) {
-            const re = new RegExp(`<div class="fold[^"]*" id="fold-${id}"><input class="fold-toggle" type="checkbox" id="fold-${id}-open">`
+            const re = new RegExp(`<div class="fold[^"]*" id="fold-${id}"><input class="fold-toggle" type="checkbox" id="fold-${id}-open" checked>`
                 + `<label class="fold-h" for="fold-${id}-open"><h2[^>]*>[^<]*${title}[^<]*</h2>.*?<div class="fold-body">`);
             assert.ok(re.test(home), `the ${title} fold is on the home`);
         }
