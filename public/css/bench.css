@@ -163,7 +163,7 @@ html, body { margin: 0; background: var(--bg-primary, #0a0f1c); color: var(--tex
 .br-task { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: start; padding: 14px; border-radius: 14px; background: var(--bg-card, #0f1729); border: 1px solid var(--border, #1f2d47); }
 .br-task p { margin: 0; line-height: 1.55; color: var(--text-secondary, #96a7c2); }
 .br-task.is-hidden { border-style: dashed; background: transparent; }
-.br-task-id { display: inline-flex; justify-self: start; width: fit-content; padding: 2px 8px; border-radius: 8px; background: var(--bg-hover, rgba(255,255,255,.05)); font-size: .78rem; font-weight: 700; color: var(--text-primary, #e6edf7); white-space: nowrap; margin: 0; text-decoration: none; }
+.br-task-id { display: inline-flex; justify-self: start; width: fit-content; padding: 2px 8px; border-radius: 8px; background: var(--bg-hover, color-mix(in srgb, var(--text-primary, #fff) 5%, transparent)); font-size: .78rem; font-weight: 700; color: var(--text-primary, #e6edf7); white-space: nowrap; margin: 0; text-decoration: none; }
 .br-ptask { display: grid; gap: 10px; padding: 14px; border-radius: 16px; background: var(--bg-card, #0f1729); border: 1px solid var(--border, #1f2d47); min-width: 0; }
 .br-ptask-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
 .br-ptask-meta { margin-left: auto; font-size: .84rem; color: var(--text-muted, #7386a3); font-variant-numeric: tabular-nums; }
