@@ -98,6 +98,8 @@ const HOSTILE = [
         assert.ok(w.text.includes('src="' + renderLib.RENDER_ORIGIN + '/render/e/'), 'the child loads from the render origin');
         assert.ok(!w.headers.get('x-frame-options'), 'no X-Frame-Options DENY: frame-ancestors decides');
         assert.ok(wcsp.includes('frame-ancestors https://bench.openvibe.services'), 'the showcase page may frame it');
+        assert.ok(wcsp.includes('https://openvibe.design'), 'Design\'s arena may frame it (plan L51)');
+        assert.ok(w.text.includes('id="again"') && w.text.includes('function again()'), 'a stopped entry can run again');
         const ecsp = (await t.get('/render/e/' + entryA)).headers.get('content-security-policy') || '';
         assert.ok(ecsp.includes('frame-ancestors ' + renderLib.RENDER_ORIGIN), 'the wrapper on the render origin may frame the model document: ' + ecsp);
         assert.ok(!/<meta[^>]*frame-ancestors/.test(w.text), 'no frame-ancestors in a meta tag (ignored there)');

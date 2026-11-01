@@ -26,8 +26,9 @@ const VENDOR = Object.freeze({
     three: RENDER_ORIGIN + '/vendor/three.module.js',
     addons: RENDER_ORIGIN + '/vendor/three/addons/',
 });
-/** The pages that may frame the wrapper and the model documents. */
-const FRAME_ANCESTORS = 'https://bench.openvibe.services https://openvibe.report';
+/** The pages that may frame the wrapper and the model documents. OpenVibe.Design shows its arena's blind pairs in
+ *  these frames (plan L51: Design's /arena is a view of Bench's design kinds). */
+const FRAME_ANCESTORS = 'https://bench.openvibe.services https://openvibe.report https://openvibe.design';
 /** The wrapper's own policy: its one inline script under a fresh nonce, its child frame only from the render origin. */
 function wrapperCsp(nonce) {
     return "default-src 'none'; script-src 'nonce-" + nonce + "'; style-src 'unsafe-inline'; frame-src " + RENDER_ORIGIN
@@ -227,12 +228,15 @@ function wrapperDocument(opts) {
         + '<div class="bar"><b>' + esc(title) + '</b><span><span class="clock" id="clock">' + secs + 's</span> '
         + '<button type="button" id="stop">Stop</button></span></div>'
         + '<iframe id="frame" title="' + esc(title) + '" sandbox="' + SANDBOX + '" referrerpolicy="no-referrer" loading="lazy" src="' + esc(RENDER_ORIGIN + '/render/e/' + encodeURIComponent(entryId)) + '"></iframe>'
-        + '<div class="stopped" id="stopped">The entry stopped after ' + secs + ' seconds.</div>'
+        + '<div class="stopped" id="stopped">The entry stopped after ' + secs + ' seconds. <button type="button" id="again">Run it again</button></div>'
         + '<script nonce="' + esc(nonce) + '">(function(){var frame=document.getElementById("frame");var clock=document.getElementById("clock");'
-        + 'var stopped=document.getElementById("stopped");var left=' + secs + ';'
-        + 'function stop(){frame.src="about:blank";frame.style.display="none";stopped.style.display="block";clock.textContent="0s";}'
-        + 'document.getElementById("stop").addEventListener("click",stop);'
-        + 'var timer=setInterval(function(){left-=1;clock.textContent=left>0?left+"s":"0s";if(left<=0){clearInterval(timer);stop();}},1000);'
+        + 'var stopped=document.getElementById("stopped");var src=frame.getAttribute("src");var left=' + secs + ';var timer=0;'
+        + 'function tick(){left-=1;clock.textContent=left>0?left+"s":"0s";if(left<=0)stop();}'
+        + 'function stop(){clearInterval(timer);frame.src="about:blank";frame.style.display="none";stopped.style.display="block";clock.textContent="0s";}'
+        // A voter comparing two pages may need longer than the clock: the same entry runs again, from the start.
+        + 'function again(){clearInterval(timer);left=' + secs + ';clock.textContent=left+"s";stopped.style.display="none";frame.style.display="";frame.src=src;timer=setInterval(tick,1000);}'
+        + 'document.getElementById("stop").addEventListener("click",stop);document.getElementById("again").addEventListener("click",again);'
+        + 'timer=setInterval(tick,1000);'
         + 'addEventListener("message",function(e){if(e&&e.data==="bench:stop")stop();});})();</script></body></html>';
 }
 
