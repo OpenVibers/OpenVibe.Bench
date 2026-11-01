@@ -41,6 +41,60 @@ run under it, with no person id. Nothing private or unlisted is ever read there.
 | `GET /api/v1/rankings?benchmark=&metric=score\|value\|speed\|consistency&harness=&since=` | anyone | The rankings for a benchmark. Verified runs only, unless `include_submitted=true`. |
 | `GET /api/v1/percentile?benchmark=&model=&score=` | anyone | Where a score sits among that model's runs. |
 
+## Voting without signing in
+
+A person who has not signed in may still judge a pairwise round (`human_pairwise` kinds only). There are two ways in,
+and both are capped.
+
+**On Bench's own pages.** `/showcase/round/:id` (and `POST /api/v1/showcase/rounds/:id/vote`) hands the visitor a
+random opaque id in a signed, httpOnly cookie (`bench_anon`). The id says nothing about the visitor, and the cookie
+is signed with a server secret, so a client cannot mint a new voter id at will. Bench never stores the address: the
+per-address cap counts a hash of it, salted per day, so two days of addresses cannot be linked.
+
+**Relayed by a first-party service.** A service that may relay sends its own service token (with
+`bench.judgement.cast`) and the header `X-OV-Voter: anon:<opaque id it derived from its own cookie>`. Only a service
+on the allow-list may relay: `BENCH_ANON_RELAY_SERVICES` (default `design`). The relay's own daily total is capped
+apart from the per-voter cap.
+
+| Route | Who | What |
+|---|---|---|
+| `GET /api/v1/judgements/next?kind=` | a person, an anonymous voter (cookie), or a relaying service (`X-OV-Voter`) | The next ready round of that kind the caller has not judged and did not start, blind. A signed-in person keeps the old answer (`200` with `pair: null` when there is nothing); an anonymous voter gets `204` when there is nothing to judge. |
+| `POST /api/v1/rounds/:id/judgements` | a person, a service with `bench.judgement.cast`, or a relaying service with `X-OV-Voter` | The vote. A relayed vote is a `human_pairwise` vote of the anonymous voter the header names. |
+| `POST /api/v1/showcase/rounds/:id/vote` | a person, or an anonymous voter (the cookie) | The vote from Bench's own page. |
+| `GET /api/v1/boards/:kindId?voters=people\|anon` | anyone | The board of the signed-in votes alone, or of the anonymous votes alone. Every board says how many votes of each kind of voter it holds (`voters`). |
+
+What is stored is never the opaque id: the judgement carries `voter_kind` `anon` and the hash of the id, in the same
+column a person's id would use. One vote per voter per round, and a creator never judges their own round, follow from
+that. The open dataset never carries a voter id.
+
+Every cap answers the same way: `429` with the code `bench.limit_anon` and the detail "Sign in to keep voting today".
+
+| Cap | Environment variable | Default |
+|---|---|---|
+| One anonymous voter, per day | `BENCH_ANON_VOTER_PER_DAY` | 30 |
+| One address (a salted hash of it, salted per day), per day | `BENCH_ANON_IP_PER_DAY` | 60 |
+| One relaying service, per day | `BENCH_ANON_RELAY_PER_DAY` | 3000 |
+| Every anonymous vote on the site, per day | `BENCH_ANON_GLOBAL_PER_DAY` | 20000 |
+| The services that may relay | `BENCH_ANON_RELAY_SERVICES` | `design` |
+| Signed-out voting on or off | `BENCH_ANON_ENABLED` | on |
+| The secret the cookie is signed with | `BENCH_ANON_SECRET` | the OAuth client secret |
+
+## The daily rounds
+
+Bench makes one round per design kind per day, at one fixed UTC hour, on its own budget. It is off until the owner
+turns it on (`BENCH_DAILY_ROUNDS`), and it never starts under the drill. The prompts come from a curated list of
+about twenty per kind (`server/bench/daily-prompts.js`), and the two models of every round come from the pool the
+ordinary rounds use. A kind whose share of the day's budget is gone is skipped, and what the day spent is written
+down in `bench_daily_rounds`.
+
+| Setting | Environment variable | Default |
+|---|---|---|
+| The job on or off | `BENCH_DAILY_ROUNDS` | off |
+| The job under the drill (the tests) | `BENCH_DAILY_ROUNDS_IN_DRILL` | off |
+| The UTC hour of the day | `BENCH_DAILY_ROUNDS_HOUR_UTC` | 8 |
+| What the day's rounds may cost | `BENCH_DAILY_BUDGET_USD` | 1.00 |
+| What one round is assumed to cost | `BENCH_DAILY_ROUND_ESTIMATE_USD` | 0.05 |
+
 ## The older API
 
 Bench also serves kinds, tasks, rounds, entries, judgements, the boards, the models, the open dataset and the private

@@ -15,6 +15,9 @@ const styleLib = require('./rating/style');
 const BASE_ELO = ratingLib.BASE_ELO;
 const K = 32;
 const CATEGORY_DEFAULT = 'all';
+// The rating categories: everyone ('all'), the signed-in people ('people') and the anonymous voters ('anon').
+const CATEGORY_PEOPLE = 'people';
+const CATEGORY_ANON = 'anon';
 
 const num = (v, d = 0) => (v == null || v === '' || Number.isNaN(Number(v)) ? d : Number(v));
 const iso = (v) => (v == null ? null : (v instanceof Date ? v.toISOString() : String(v)));
@@ -98,6 +101,27 @@ function wireJudgement(row, { withSubject = false } = {}) {
         vote_counts: row.vote_counts == null ? null : (typeof row.vote_counts === 'string' ? JSON.parse(row.vote_counts) : row.vote_counts), at: iso(row.at),
     };
     if (withSubject) out.subject = row.subject || null;
+    return out;
+}
+
+/**
+ * Who voted: a person, a first-party service, or an anonymous voter. An anonymous voter is a hash (anon_…), never
+ * an id, so the database never holds anything about the visitor.
+ */
+function kindOfVoter(voterKind, subject) {
+    if (voterKind === 'person' || voterKind === 'anon' || voterKind === 'service') return voterKind;
+    const s = String(subject || '');
+    if (!s) return 'service';
+    if (s.startsWith('anon_')) return 'anon';
+    if (s.startsWith('usr_')) return 'person';
+    return 'service';
+}
+
+/** The rating categories a vote is counted in: everyone, and the kind of voter it came from. */
+function categoriesOf(voterKind) {
+    const out = [CATEGORY_DEFAULT];
+    if (voterKind === 'person') out.push(CATEGORY_PEOPLE);
+    else if (voterKind === 'anon') out.push(CATEGORY_ANON);
     return out;
 }
 
@@ -232,13 +256,25 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         };
     }
 
-    async function createRound({ taskId, offers = null, seed = 0, subject }) {
+    async function createRound({ taskId, offers = null, seed = 0, subject, bypassQuota = false }) {
         const task = await getTask(taskId);
         if (!task) return refusal(404, 'bench.task_not_found', 'No such task.');
         const kind = await getKind(task.kind_id);
         if (!kind) return refusal(422, 'bench.kind_not_found', 'The task\'s kind is gone.');
         const off = Array.isArray(offers) ? offers.slice(0, 3).map((o) => ({ provider: String(o.provider || ''), model: o.model == null ? null : String(o.model) })) : [];
         if (off.some((o) => !o.provider)) return refusal(422, 'bench.invalid_offers', 'Every offer needs a provider.');
+        // The daily rounds job spends Bench's own budget, not a person's quota, so it may skip the counts.
+        if (bypassQuota) {
+            const ownId = s.newId('brd');
+            const own = await db.maybe(
+                `INSERT INTO bench_rounds (id, task_id, kind_id, offers, status, seed, params, pool_fallback, created_by, created_at)
+                 VALUES ($1, $2, $3, $4::jsonb, 'queued', $5, '{}'::jsonb, $6, $7, $8::timestamptz)
+                 RETURNING *`,
+                [ownId, task.id, kind.id, JSON.stringify(off), Math.max(0, Number(seed) || 0), off.length < 3, subject, s.iso()],
+            );
+            if (!own) throw new BenchError(500, 'bench.round_not_created', 'Bench could not create the round.');
+            return { ok: true, round: await getRound(ownId) };
+        }
         const perDay = config ? config.bench.roundsPerDay : 3;
         const daily = config ? config.bench.roundsDaily : 20;
         const start = dayStart();
@@ -338,14 +374,16 @@ function createStore(s, { log = console, random = Math.random, config = null } =
     }
 
     /** A ready round this person has not judged and did not start, with two entries shuffled and identities hidden. */
-    async function nextJudgement({ kind, subject, random: rng = random } = {}) {
+    async function nextJudgement({ kind, subject, random: rng = random, extraCreators = [] } = {}) {
+        const creators = (extraCreators || []).filter(Boolean);
         const row = await db.maybe(
             `SELECT r.* FROM bench_rounds r
              WHERE r.kind_id = $1 AND r.status = 'finished' AND r.created_by <> $2
+               AND NOT (r.created_by = ANY($3::text[]))
                AND (SELECT COUNT(*) FROM bench_entries e WHERE e.round_id = r.id AND e.error IS NULL) >= 2
                AND NOT EXISTS (SELECT 1 FROM bench_judgements j WHERE j.round_id = r.id AND j.subject = $2)
              ORDER BY r.created_at, r.id LIMIT 1`,
-            [String(kind || ''), subject],
+            [String(kind || ''), subject, creators],
         );
         if (!row) return null;
         const entries = (await db.many('SELECT * FROM bench_entries WHERE round_id = $1 AND error IS NULL ORDER BY id', [row.id])).map(wireEntry);
@@ -358,7 +396,7 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         };
     }
 
-    async function castJudgement({ roundId, kindId, judge, judgeName = null, judgeVersion = null, pair = null, outcome = null, score = null, voteCounts = null, question = null, answer = null, netHash = null, subject }) {
+    async function castJudgement({ roundId, kindId, judge, judgeName = null, judgeVersion = null, pair = null, outcome = null, score = null, voteCounts = null, question = null, answer = null, netHash = null, subject, voterKind = null, extraCreators = [], quota = null }) {
         if (!JUDGES.includes(judge)) throw new BenchError(422, 'bench.invalid_judge', 'Unknown judge.');
         try {
             return await s.tx(async () => {
@@ -372,7 +410,13 @@ function createStore(s, { log = console, random = Math.random, config = null } =
                 let left = null;
                 let right = null;
                 if (judge === 'human_pairwise' || judge === 'game_outcome' || judge === 'audience_poll') {
-                    if (judge === 'human_pairwise' && r.created_by === subject) throw new BenchError(403, 'bench.creator_cannot_vote', 'You cannot judge a round you started.');
+                    // A voter never judges a round they started: a person never judges their own, and the
+                    // service that relays an anonymous vote never judges a round it started itself.
+                    const extra = (extraCreators || []).filter(Boolean);
+                    const creators = [r.created_by, ...extra].filter(Boolean);
+                    if (judge === 'human_pairwise' && (creators.includes(subject) || extra.includes(r.created_by))) {
+                        throw new BenchError(403, 'bench.creator_cannot_vote', 'You cannot judge a round you started.');
+                    }
                     const p = pair && typeof pair === 'object' ? pair : {};
                     if (!p.left || !p.right || p.left === p.right) throw new BenchError(422, 'bench.invalid_pair', 'A pairwise judgement needs two different entries.');
                     const prior = await db.maybe('SELECT 1 AS n FROM bench_judgements WHERE round_id = $1 AND subject = $2', [r.id, subject]);
@@ -394,18 +438,22 @@ function createStore(s, { log = console, random = Math.random, config = null } =
                     } else if (voteCounts != null) throw new BenchError(422, 'bench.invalid_vote_counts', 'Only an audience poll carries vote counts.');
                 }
 
+                // The daily caps of the anonymous vote are spent here, inside the vote's own transaction: a
+                // refused vote spends nothing, and a vote that is rolled back spends nothing either.
+                if (quota) await quota();
+
                 const id = s.newId('bju');
                 const row = await db.maybe(
-                    `INSERT INTO bench_judgements (id, round_id, kind_id, judge, judge_name, judge_version, method, pair, outcome, score, subject, at, vote_counts, question, answer, net_hash)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12::timestamptz, $13::jsonb, $14, $15, $16) RETURNING *`,
+                    `INSERT INTO bench_judgements (id, round_id, kind_id, judge, judge_name, judge_version, method, pair, outcome, score, subject, at, vote_counts, question, answer, net_hash, voter_kind)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12::timestamptz, $13::jsonb, $14, $15, $16, $17) RETURNING *`,
                     [id, r.id, r.kind_id, judge, judgeName, judgeVersion, judge, pair ? JSON.stringify(pair) : null,
                         outcome || null, score == null ? null : num(score), subject || null, s.iso(), voteCounts ? JSON.stringify(voteCounts) : null,
                         question == null ? null : String(question).slice(0, 200), answer == null ? null : String(answer).slice(0, 40),
-                        netHash == null ? null : String(netHash).slice(0, 64)],
+                        netHash == null ? null : String(netHash).slice(0, 64), kindOfVoter(voterKind, subject)],
                 );
                 // One stream poll is one game, regardless of audience size. The counts are evidence, not Elo weight.
                 if (judge === 'human_pairwise' || judge === 'game_outcome' || (judge === 'audience_poll' && voteCounts.voters > 0)) {
-                    await applyPairwiseRating(r.id, r.kind_id, left, right, outcome);
+                    await applyPairwiseRating(r.id, r.kind_id, left, right, outcome, kindOfVoter(voterKind, subject));
                 }
                 await insertOutbox('bench.judgement.recorded', {
                     judgement_id: id, round_id: r.id, kind_id: r.kind_id, judge, method: judge, outcome: outcome || null, score: score == null ? null : num(score),
@@ -418,42 +466,46 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         }
     }
 
-    async function applyPairwiseRating(roundId, kindId, left, right, outcome) {
+    async function applyPairwiseRating(roundId, kindId, left, right, outcome, voterKind = 'person') {
         if (outcome === 'both_bad') return;
         if (!left || !right || left.model === right.model) return;
         const models = [left.model, right.model];
         const now = s.iso();
-        for (const model of models) {
-            await db.exec(
-                `INSERT INTO bench_ratings (kind_id, category, subject, elo, games, wins, losses, ties, win_rate, ci_lower, ci_upper, updated_at)
-                 VALUES ($1, $2, $3, $4, 0, 0, 0, 0, 0, NULL, NULL, $5::timestamptz)
-                 ON CONFLICT (kind_id, category, subject) DO NOTHING`,
-                [kindId, CATEGORY_DEFAULT, model, BASE_ELO, now],
-            );
-        }
-        const rows = await db.many('SELECT * FROM bench_ratings WHERE kind_id = $1 AND category = $2 AND subject = ANY($3::text[]) ORDER BY subject FOR UPDATE',
-            [kindId, CATEGORY_DEFAULT, models]);
-        const byModel = new Map(rows.map((r) => [r.subject, r]));
-        const a = byModel.get(left.model);
-        const b = byModel.get(right.model);
-        if (!a || !b) return;
-        const eloOutcome = outcome === 'draw' ? 'tie' : outcome;
-        const update = ratingLib.eloUpdate(num(a.elo, BASE_ELO), num(b.elo, BASE_ELO), eloOutcome, K);
-        const sa = outcome === 'left' ? 1 : outcome === 'right' ? 0 : 0.5;
-        const sb = 1 - sa;
-        for (const [row, elo, score, opp] of [[a, update.a, sa, sb], [b, update.b, sb, sa]]) {
-            const games = num(row.games) + 1;
-            const wins = num(row.wins) + (score > opp ? 1 : 0);
-            const losses = num(row.losses) + (score < opp ? 1 : 0);
-            const ties = num(row.ties) + (score === opp ? 1 : 0);
-            const ci = ratingCi(elo, wins, losses, ties);
-            await db.exec(
-                `UPDATE bench_ratings SET elo = $1, games = $2, wins = $3, losses = $4, ties = $5,
-                   win_rate = $6, ci_lower = $7, ci_upper = $8, updated_at = $9::timestamptz
-                 WHERE kind_id = $10 AND category = $11 AND subject = $12`,
-                [elo, games, wins, losses, ties, games ? Math.round(((wins + ties * 0.5) / games) * 10000) / 10000 : 0,
-                    ci.ci_lower, ci.ci_upper, now, kindId, CATEGORY_DEFAULT, row.subject],
-            );
+        // The vote is counted twice: once for everyone ('all') and once for the kind of voter it came from
+        // ('people' or 'anon'), so a board can show the signed-in votes alone and still count the rest.
+        for (const category of categoriesOf(voterKind)) {
+            for (const model of models) {
+                await db.exec(
+                    `INSERT INTO bench_ratings (kind_id, category, subject, elo, games, wins, losses, ties, win_rate, ci_lower, ci_upper, updated_at)
+                     VALUES ($1, $2, $3, $4, 0, 0, 0, 0, 0, NULL, NULL, $5::timestamptz)
+                     ON CONFLICT (kind_id, category, subject) DO NOTHING`,
+                    [kindId, category, model, BASE_ELO, now],
+                );
+            }
+            const rows = await db.many('SELECT * FROM bench_ratings WHERE kind_id = $1 AND category = $2 AND subject = ANY($3::text[]) ORDER BY subject FOR UPDATE',
+                [kindId, category, models]);
+            const byModel = new Map(rows.map((r) => [r.subject, r]));
+            const a = byModel.get(left.model);
+            const b = byModel.get(right.model);
+            if (!a || !b) continue;
+            const eloOutcome = outcome === 'draw' ? 'tie' : outcome;
+            const update = ratingLib.eloUpdate(num(a.elo, BASE_ELO), num(b.elo, BASE_ELO), eloOutcome, K);
+            const sa = outcome === 'left' ? 1 : outcome === 'right' ? 0 : 0.5;
+            const sb = 1 - sa;
+            for (const [row, elo, score, opp] of [[a, update.a, sa, sb], [b, update.b, sb, sa]]) {
+                const games = num(row.games) + 1;
+                const wins = num(row.wins) + (score > opp ? 1 : 0);
+                const losses = num(row.losses) + (score < opp ? 1 : 0);
+                const ties = num(row.ties) + (score === opp ? 1 : 0);
+                const ci = ratingCi(elo, wins, losses, ties);
+                await db.exec(
+                    `UPDATE bench_ratings SET elo = $1, games = $2, wins = $3, losses = $4, ties = $5,
+                       win_rate = $6, ci_lower = $7, ci_upper = $8, updated_at = $9::timestamptz
+                     WHERE kind_id = $10 AND category = $11 AND subject = $12`,
+                    [elo, games, wins, losses, ties, games ? Math.round(((wins + ties * 0.5) / games) * 10000) / 10000 : 0,
+                        ci.ci_lower, ci.ci_upper, now, kindId, category, row.subject],
+                );
+            }
         }
         await insertOutbox('bench.rating.changed', { kind_id: kindId, category: CATEGORY_DEFAULT, subjects: models });
         // The ratings have been refitted: this is where the watches are checked.
@@ -474,15 +526,15 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         return rows.map((r) => r.model);
     }
 
-    async function boardElo(kindId) {
+    async function boardElo(kindId, category = CATEGORY_DEFAULT) {
         const subjects = await subjectsFor(kindId);
-        const ratings = await db.many('SELECT * FROM bench_ratings WHERE kind_id = $1 AND category = $2', [kindId, CATEGORY_DEFAULT]);
+        const ratings = await db.many('SELECT * FROM bench_ratings WHERE kind_id = $1 AND category = $2', [kindId, category]);
         const by = new Map(ratings.map((r) => [r.subject, wireRating(r)]));
         const rows = subjects.map((subject) => {
             const r = by.get(subject);
             const games = r ? r.games : 0;
             return {
-                kind_id: kindId, category: CATEGORY_DEFAULT, subject,
+                kind_id: kindId, category, subject,
                 elo: r ? r.elo : BASE_ELO,
                 games, wins: r ? r.wins : 0, losses: r ? r.losses : 0, ties: r ? r.ties : 0,
                 win_rate: r ? r.win_rate : 0,
@@ -524,12 +576,44 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         return new Map(rows.map((r) => [r.model, r]));
     }
 
-    async function board(kindId, { type = 'elo', category = CATEGORY_DEFAULT, period = 'all' } = {}) {
+    /**
+     * Which rating category a board reads: everyone ('all'), the signed-in people ('people') or the anonymous
+     * voters ('anon'). The voters parameter wins over the older category parameter.
+     */
+    function categoryOf(voters, category) {
+        const v = String(voters == null ? '' : voters).trim().toLowerCase();
+        if (v === 'people' || v === 'person' || v === 'persons') return CATEGORY_PEOPLE;
+        if (v === 'anon' || v === 'anonymous') return CATEGORY_ANON;
+        const c = String(category == null ? '' : category).trim().toLowerCase();
+        if (c === 'people' || c === 'person') return CATEGORY_PEOPLE;
+        if (c === 'anon' || c === 'anonymous') return CATEGORY_ANON;
+        return CATEGORY_DEFAULT;
+    }
+
+    /** How many votes of each kind of voter a board holds. */
+    async function voterCounts(kindId) {
+        const rows = await db.many(
+            `SELECT COALESCE(voter_kind, 'person') AS kind, COUNT(*)::int AS n
+             FROM bench_judgements WHERE kind_id = $1 AND judge = 'human_pairwise'
+             GROUP BY 1`,
+            [kindId],
+        );
+        const out = { person: 0, anon: 0, service: 0, total: 0 };
+        for (const row of rows) {
+            const kind = String(row.kind || '');
+            if (kind in out) out[kind] = num(row.n);
+            out.total += num(row.n);
+        }
+        return out;
+    }
+
+    async function board(kindId, { type = 'elo', category = CATEGORY_DEFAULT, period = 'all', voters = null } = {}) {
         const kind = await getKind(kindId);
         if (!kind) return null;
+        const cat = categoryOf(voters, category);
         const cost = await costStats(kindId);
         const pass = await passRate(kindId);
-        const eloRows = await boardElo(kindId);
+        const eloRows = await boardElo(kindId, cat);
 
         let rows;
         if (type === 'elo') {
@@ -561,7 +645,7 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         } else {
             return null;
         }
-        return { kind_id: kindId, category, period, type, rows };
+        return { kind_id: kindId, category: cat, period, type, rows, voters: await voterCounts(kindId) };
     }
 
     /**
@@ -710,4 +794,7 @@ function createStore(s, { log = console, random = Math.random, config = null } =
     };
 }
 
-module.exports = { createStore, BenchError, KINDS, JUDGES, WINNERS, BASE_ELO, CATEGORY_DEFAULT, shuffle };
+module.exports = {
+    createStore, BenchError, KINDS, JUDGES, WINNERS, BASE_ELO, CATEGORY_DEFAULT, shuffle,
+    CATEGORY_PEOPLE, CATEGORY_ANON, kindOfVoter, categoriesOf,
+};

@@ -12,7 +12,7 @@
  *   POST   /rounds/:id/entries        (a room submits outside entries with a service token)
  *   GET    /judgements/next
  *   POST   /rounds/:id/judgements
- *   GET    /boards/:kindId?type=elo|pareto|cost
+ *   GET    /boards/:kindId?type=elo|pareto|cost&voters=people|anon
  *   GET    /models/:model
  *   GET    /datasets/:kindId.jsonl
  *   POST   /evals
@@ -162,11 +162,39 @@ function createApi(ctx) {
     });
 
     // ── Judgements ──────────────────────────────────────────
-    r.get('/judgements/next', requirePerson, async (req, res) => {
+    /**
+     * The next pair to judge. A signed-in person gets the next round they have not judged and did not start;
+     * an anonymous voter gets one too, through Bench's own signed cookie or through the X-OV-Voter header a
+     * relaying service sends. The anonymous answer is 204 when there is nothing left to judge.
+     */
+    r.get('/judgements/next', async (req, res) => {
         try {
-            const pair = await bench.nextJudgement({ kind: String(req.query.kind || ''), subject: subjectOf(req), random: ctx.random || Math.random });
+            const kind = String(req.query.kind || '');
+            const person = subjectOf(req);
+            if (person) {
+                const pair = await bench.nextJudgement({ kind, subject: person, random: ctx.random || Math.random });
+                res.set('Cache-Control', 'private, no-store');
+                if (!pair) return res.json({ pair: null, detail: 'There is no round waiting for your judgement right now.' });
+                return res.json(pair);
+            }
+            if (!ctx.anon.enabled()) {
+                return problem(res, 403, 'bench.anon_disabled', 'Voting without signing in is off at the moment.');
+            }
+            const anon = ctx.anon.resolve(req, req.principal);
+            if (!anon) {
+                return problem(res, 401, 'bench.sign_in_required', 'Sign in at bench.openvibe.services, or send a service token that may relay anonymous votes.');
+            }
+            const kindRow = kindById(kind);
+            if (!kindRow || kindRow.judge !== 'human_pairwise') {
+                return problem(res, 403, 'bench.anon_kind_not_allowed', 'Only pairwise kinds can be judged without signing in.');
+            }
+            if (anon.minted) ctx.anon.setCookie(res, anon.opaque);
+            const pair = await bench.nextJudgement({
+                kind, subject: anon.subject, random: ctx.random || Math.random,
+                extraCreators: anon.creator ? [anon.creator] : [],
+            });
             res.set('Cache-Control', 'private, no-store');
-            if (!pair) return res.json({ pair: null, detail: 'There is no round waiting for your judgement right now.' });
+            if (!pair) return res.status(204).end();
             return res.json(pair);
         } catch (err) { return failed(res, err); }
     });
@@ -174,6 +202,36 @@ function createApi(ctx) {
     r.post('/rounds/:id/judgements', async (req, res) => {
         const b = req.body && typeof req.body === 'object' ? req.body : {};
         const roundId = String(req.params.id || '');
+        // A first-party service may relay an anonymous voter: its own service token, and the voter id it derived
+        // from its own cookie in the X-OV-Voter header. Only a service on the allow-list may do this.
+        let relayed = null;
+        try {
+            const maybe = ctx.anon.resolve(req, req.principal, { mint: false });
+            if (maybe && maybe.source === 'relay') relayed = maybe;
+        } catch (err) { return failed(res, err); }
+        if (relayed) {
+            if (!ctx.anon.enabled()) {
+                return problem(res, 403, 'bench.anon_disabled', 'Voting without signing in is off at the moment.');
+            }
+            try {
+                const round = await bench.getRound(roundId, { viewerSubject: null });
+                if (!round) return problem(res, 404, 'bench.round_not_found', 'No such round.');
+                const row = kindById(round.kind_id);
+                if (!row || row.judge !== 'human_pairwise') {
+                    return problem(res, 403, 'bench.anon_kind_not_allowed', 'Only pairwise kinds can be judged without signing in.');
+                }
+                const out = await bench.castJudgement({
+                    roundId, kindId: round.kind_id, judge: 'human_pairwise',
+                    judgeName: b.judge_name, judgeVersion: b.judge_version,
+                    pair: b.pair, outcome: b.outcome, score: b.score, voteCounts: b.vote_counts,
+                    subject: relayed.subject, voterKind: 'anon',
+                    extraCreators: relayed.creator ? [relayed.creator] : [],
+                    quota: () => ctx.anon.takeQuota(relayed),
+                });
+                res.set('Cache-Control', 'private, no-store');
+                return res.status(201).json(out);
+            } catch (err) { return failed(res, err); }
+        }
         let judge = typeof b.judge === 'string' && b.judge ? b.judge : null;
         if (!judge) {
             const round = await bench.getRound(roundId, { viewerSubject: null });
@@ -210,6 +268,8 @@ function createApi(ctx) {
                 type,
                 category: typeof req.query.category === 'string' ? req.query.category : 'all',
                 period: typeof req.query.period === 'string' ? req.query.period : 'all',
+                // 'people' shows the signed-in votes alone, 'anon' the anonymous ones alone.
+                voters: typeof req.query.voters === 'string' ? req.query.voters : null,
             });
             if (!board) return problem(res, 404, 'bench.kind_not_found', 'No such kind.');
             res.set('Cache-Control', 'public, max-age=30');
