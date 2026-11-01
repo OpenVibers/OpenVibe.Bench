@@ -84,7 +84,7 @@ async function createApp(opts = {}) {
     const jobs = createBenchJobs({ s, bench, ai, config, log });
     // The signed-out voter (the cookie, the relay header and the daily caps) and the daily rounds job.
     const anon = createAnon({ s, config, log });
-    const daily = createDailyRounds({ s, bench, ai, config, log });
+    const daily = createDailyRounds({ s, bench, ai, config, anon, log });
     const publisher = createPublisher({ config, s, fetchImpl, log });
 
     await bench.seedKinds();

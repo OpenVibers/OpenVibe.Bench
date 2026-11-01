@@ -20,11 +20,12 @@ const SUBJECT = 'service:bench-daily';
 
 const num = (v, d = 0) => (v == null || Number.isNaN(Number(v)) ? d : Number(v));
 
-function createDailyRounds({ s, bench, ai, config, log = console }) {
+function createDailyRounds({ s, bench, ai, config, anon = null, log = console }) {
     const db = s.db;
     let timer = null;
     let stopped = false;
     let running = false;
+    let prunedDay = null;
 
     const cfg = () => (config && config.bench && config.bench.daily) || {};
     const dayOf = (now) => new Date(now == null ? s.now() : now).toISOString().slice(0, 10);
@@ -186,6 +187,12 @@ function createDailyRounds({ s, bench, ai, config, log = console }) {
             const now = s.now();
             const day = dayOf(now);
             const hour = new Date(now).getUTCHours();
+            // The daily counters of the anonymous vote are dropped once a day: the hash of yesterday's address
+            // is worth nothing today.
+            if (anon && prunedDay !== day) {
+                prunedDay = day;
+                try { await anon.prune(); } catch (err) { log.warn('[OpenVibe.Bench] daily rounds: the old counters stayed:', (err && err.message) || err); }
+            }
             if (hour < num(cfg().hourUtc, 8)) return null;
             const rows = num(await db.value('SELECT COUNT(*)::int AS n FROM bench_daily_rounds WHERE day = $1', [day]));
             if (rows >= DAILY_KIND_IDS.length) {

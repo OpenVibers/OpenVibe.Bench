@@ -360,5 +360,46 @@ function cookieOf(res) {
 
     await check('stop', async () => { await t3.close(); });
 
+    // The address hash is salted per day, and the old counters go.
+    let now = Date.parse('2026-11-01T09:00:00.000Z');
+    const t4 = await boot({
+        now: () => now,
+        env: { BENCH_ROUNDS_PER_DAY: '20', BENCH_ANON_IP_PER_DAY: '1000', BENCH_ANON_GLOBAL_PER_DAY: '1000' },
+    });
+    const alice4 = t4.network.addUser('alice');
+    const svc4 = t4.network.serviceToken({ sub: 'svc:games', audience: 'openvibe.bench', cap: ['bench.entry.create'] });
+    const rounds4 = [];
+    for (const n of [1, 2]) rounds4.push(await makeRound(t4, alice4, svc4, n));
+
+    await check('the hash of an address is salted per day, so two days cannot be linked', async () => {
+        const first = await t4.get('/api/v1/judgements/next?kind=design.ui');
+        const v1 = await t4.get('/api/v1/showcase/rounds/' + rounds4[0].id + '/vote', {
+            method: 'POST', cookie: cookieOf(first), json: { outcome: 'A' }, ...SAME,
+        });
+        assert.strictEqual(v1.status, 201, v1.text);
+
+        now = Date.parse('2026-11-02T09:00:00.000Z');
+        const second = await t4.get('/api/v1/judgements/next?kind=design.ui');
+        const v2 = await t4.get('/api/v1/showcase/rounds/' + rounds4[1].id + '/vote', {
+            method: 'POST', cookie: cookieOf(second), json: { outcome: 'A' }, ...SAME,
+        });
+        assert.strictEqual(v2.status, 201, v2.text);
+
+        const rows = await t4.ctx.s.db.many("SELECT key, day FROM bench_anon_counters WHERE scope = 'ip' ORDER BY day");
+        assert.strictEqual(rows.length, 2, 'two days, two rows: ' + JSON.stringify(rows));
+        assert.notStrictEqual(rows[0].key, rows[1].key, 'the salt moves with the day');
+        assert.strictEqual(rows[0].day, '2026-11-01');
+        assert.strictEqual(rows[1].day, '2026-11-02');
+    });
+
+    await check('the old counters are dropped after their week', async () => {
+        now = Date.parse('2026-11-20T09:00:00.000Z');
+        await t4.ctx.anon.prune();
+        const rows = await t4.ctx.s.db.many('SELECT COUNT(*)::int AS n FROM bench_anon_counters');
+        assert.strictEqual(rows[0].n, 0, 'the old rows are gone');
+    });
+
+    await check('stop', async () => { await t4.close(); });
+
     done();
 })();
