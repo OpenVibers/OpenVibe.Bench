@@ -9,7 +9,7 @@
 const express = require('express');
 const { http } = require('openvibe-contracts');
 const { asyncRouter } = require('./router');
-const { sameOrigin, writeAllowed } = require('./same-origin');
+const { sameOrigin } = require('./same-origin');
 const renderLib = require('../bench/render');
 const { kindById, SHOWCASE_KIND_IDS } = require('../kinds');
 const { esc, raw } = require('../render/html');
