@@ -23,7 +23,7 @@ const time = (iso) => (iso ? html`<time datetime="${iso}">${String(iso).replace(
 
 function table(headers, rows, { cls = '', empty = 'Nothing here yet.' } = {}) {
     if (!rows.length) return html`<p class="muted">${empty}</p>`;
-    return html`<div class="table-wrap"><table class="${cls}"><thead><tr>${headers.map((h) => html`<th scope="col">${h}</th>`)}</tr></thead><tbody>${rows.map((r) => html`<tr>${r.map((c) => html`<td>${c}</td>`)}</tr>`)}</tbody></table></div>`;
+    return html`<div class="table-wrap"><table class="${cls}"><thead><tr>${headers.map((h) => html`<th scope="col">${h}</th>`)}</tr></thead><tbody>${rows.map((r) => html`<tr>${r.map((c, i) => (typeof headers[i] === 'string' && headers[i] ? html`<td data-label="${headers[i]}">${c}</td>` : html`<td>${c}</td>`))}</tr>`)}</tbody></table></div>`;
 }
 
 const notice = (text, kind = 'info') => html`<div class="notice ${kind}" role="status">${text}</div>`;
