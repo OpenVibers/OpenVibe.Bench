@@ -279,6 +279,10 @@ html, body { margin: 0; background: var(--bg-primary, #0a0f1c); color: var(--tex
 .ga-filters label { display: grid; gap: 4px; min-width: 0; font-size: .74rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted, #7386a3); }
 .ga-filters input, .ga-filters select { min-height: 44px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--border, #1f2d47); background: var(--bg-input, var(--bg-primary, #0a0f1c)); color: var(--text-primary, #e6edf7); font: inherit; font-weight: 600; text-transform: none; letter-spacing: normal; max-width: 100%; }
 .ga-filters input:focus-visible, .ga-filters select:focus-visible { outline: 2px solid var(--room-accent); outline-offset: 1px; }
+/* The fields read at body size, not the label's small caps (11.8 px); 16 px also keeps a phone from zooming in on focus,
+   and the Filter button is a full touch target (phone sweep, 2026-11-01). */
+.ga-filters input, .ga-filters select { font-size: 16px; font-weight: 500; letter-spacing: normal; text-transform: none; }
+.ga-filters button { min-height: 44px; }
 .ga-grid { display: grid; gap: 16px; grid-template-columns: 1fr; margin-top: 18px; }
 .ga-card { display: grid; gap: 12px; padding: 14px; border-radius: 20px; background: var(--bg-card, #0f1729); border: 1px solid var(--border, #1f2d47); min-width: 0; align-content: start; }
 .ga-prompt { margin: 0; font-size: .98rem; font-weight: 650; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
