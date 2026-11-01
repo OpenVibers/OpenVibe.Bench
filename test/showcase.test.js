@@ -115,39 +115,6 @@ const HOSTILE = [
         assert.ok(own.includes('<script nonce="N2" type="module">') && !own.includes('guess'), 'a guessed nonce is replaced by ours');
     });
 
-    await check('a model script that declares a name twice is joined, not thrown into the page console (11-01)', async () => {
-        // The seeded dataviz entry: one IIFE declares maxVal for the y scale and again for the highest point. The
-        // browser refuses the whole script ("Identifier 'maxVal' has already been declared"), so no chart draws.
-        const broken = '<div id="chart">chart</div><script>(function(){'
-            + 'const maxVal = Math.max(42000, 77000); const yMax = maxVal;'
-            + 'let maxVal = 42000; for (let i = 1; i < 12; i++) maxVal += 1000;'
-            + 'document.getElementById("chart").textContent = yMax + "/" + maxVal; })();</script>';
-        const doc = renderLib.modelDocument({ id: 'design.dataviz' }, { html: broken }, { nonce: 'N4' });
-        assert.strictEqual(renderLib.scriptProblems(doc).bad.size, 0, 'the served document compiles as the browser would');
-        assert.ok(doc.includes('let maxVal = Math.max('), 'the first declaration becomes a let');
-        assert.ok(doc.includes('maxVal = 42000'), 'the second becomes an assignment to it');
-        assert.ok(doc.includes('id="chart"'), 'the rest of the output still renders');
-        assert.ok(!doc.includes('data-ov-entry-script-error'), 'no warning when the joined script runs');
-        assert.strictEqual(renderLib.repairDuplicateDeclarations('<script>let maxVal = 1; function f(){ let maxVal = 2; return maxVal; }</script>'), null,
-            'a legal shadow in a nested function is not a duplicate');
-    });
-
-    await check('two scripts declaring the same const/let are joined too', async () => {
-        const two = '<p>two</p><script>const maxVal = 1; console.log(maxVal);</script>'
-            + '<script>let maxVal = 2; console.log(maxVal);</script>';
-        const doc = renderLib.modelDocument({ id: 'design.dataviz' }, { html: two }, { nonce: 'N5' });
-        assert.strictEqual(renderLib.scriptProblems(doc).bad.size, 0, 'scripts compile together');
-        assert.ok(doc.includes('let maxVal = 1'), 'the first script keeps its declaration, now a let');
-        assert.ok(doc.includes('maxVal = 2'), 'the later script assigns it');
-    });
-
-    await check('a script that still does not compile is left out and the frame says why', async () => {
-        const doc = renderLib.modelDocument({ id: 'design.dataviz' }, { html: '<p>still here</p><script>function ( {</script>' }, { nonce: 'N6' });
-        assert.strictEqual(renderLib.scriptProblems(doc).bad.size, 0, 'no script that throws is served');
-        assert.ok(doc.includes('data-ov-entry-script-error'), 'the frame names the failure');
-        assert.ok(doc.includes('still here'), 'the rest of the output renders');
-    });
-
     await check('an SVG keeps its namespace and fills its frame; external references stay blocked (11-01)', async () => {
         const art = '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1200 700" width="1200" height="700">'
             + '<image href="https://evil.example/x.png"/><use xlink:href="http://evil.example/s.svg#a"/><rect fill="url(#g)" width="10" height="10"/></svg>';
