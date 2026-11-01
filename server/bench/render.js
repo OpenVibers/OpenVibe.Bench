@@ -15,6 +15,7 @@
  */
 
 const crypto = require('crypto');
+const vm = require('vm');
 const { truncateBytes, MAX_BYTES } = require('./sanitize');
 
 const RENDER_ORIGIN = String(process.env.OV_RENDER_ORIGIN || 'https://bench-render.openvibe.services').replace(/\/+$/, '');
@@ -98,6 +99,185 @@ function applyNonce(html, nonce) {
         .replace(/<script\b/gi, '<script nonce="' + nonce + '"');
 }
 
+/** The inline scripts a browser would run as classic scripts, in document order. Modules are left alone: their top
+ *  level is its own scope, and vm.Script cannot parse import/export. */
+function inlineScripts(html) {
+    const text = String(html == null ? '' : html);
+    const scripts = [];
+    const re = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi;
+    let m;
+    while ((m = re.exec(text))) {
+        const attrs = m[1] || '';
+        if (/\bsrc\s*=/i.test(attrs)) continue;
+        const typeMatch = /type\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attrs);
+        const type = typeMatch ? String(typeMatch[1] || typeMatch[2] || typeMatch[3] || '').trim().toLowerCase() : '';
+        if (type === 'module' || (type && !/^(?:text\/javascript|application\/javascript)$/.test(type))) continue;
+        const openEnd = m.index + m[0].indexOf('>') + 1;
+        scripts.push({ code: m[2], start: m.index, length: m[0].length, openEnd, originalLength: m[2].length });
+    }
+    return scripts;
+}
+
+/** Which characters of a script are code, not string, template or comment: a declaration in a string is not a
+ *  declaration. The mask also gives the brace depth at each position, so a shadowing declaration in a nested block is
+ *  not confused with a duplicate in the same scope. */
+function codeMap(code) {
+    const isCode = new Uint8Array(code.length);
+    const depth = new Int32Array(code.length + 1);
+    let state = 'code';
+    let d = 0;
+    for (let i = 0; i < code.length; i++) {
+        const c = code[i], n = code[i + 1];
+        depth[i] = d;
+        if (state === 'code') {
+            if (c === '/' && n === '/') { state = 'line'; i++; continue; }
+            if (c === '/' && n === '*') { state = 'block'; i++; continue; }
+            isCode[i] = 1;
+            if (c === "'") state = 'single';
+            else if (c === '"') state = 'double';
+            else if (c === '`') state = 'template';
+            else if (c === '{') d++;
+            else if (c === '}') d--;
+        } else if (state === 'line') {
+            if (c === '\n') state = 'code';
+        } else if (state === 'block') {
+            if (c === '*' && n === '/') { state = 'code'; i++; }
+        } else if (state === 'single') {
+            if (c === '\\') i++; else if (c === "'") state = 'code';
+        } else if (state === 'double') {
+            if (c === '\\') i++; else if (c === '"') state = 'code';
+        } else if (state === 'template') {
+            if (c === '\\') i++; else if (c === '`') state = 'code';
+        }
+    }
+    depth[code.length] = d;
+    return { isCode, depth };
+}
+
+/**
+ * A model answer is not trusted to compile. The browser runs a page's classic scripts in one global scope, so two
+ * declarations of the same const/let - in one script or across two - throw "Identifier 'x' has already been declared"
+ * before either script runs, and every showcase page that frames it reports an uncaught error (11-01: the seeded
+ * dataviz entry declares maxVal twice, once per chart scale). Join the duplicate declarations at the same brace depth
+ * into one binding (the first becomes let, the later ones assignments) and use the result only when it then compiles.
+ * That keeps the model's output running rather than leaving a blank frame. Returns null when there is nothing to
+ * repair or the repair does not compile; the caller then leaves the bad script out.
+ */
+function repairDuplicateDeclarations(html) {
+    const text = String(html == null ? '' : html);
+    const scripts = inlineScripts(text);
+    if (!scripts.length) return null;
+    let changed = false;
+    for (let attempt = 0; attempt < 6; attempt++) {
+        const joined = scripts.map((s) => s.code).join('\n;\n');
+        try {
+            new vm.Script(joined, { filename: 'model-scripts.js' });
+            break;
+        } catch (err) {
+            const dup = /Identifier '([^']+)' has already been declared/.exec(String((err && err.message) || err));
+            if (!dup) return null;
+            const name = dup[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const decls = [];
+            for (let si = 0; si < scripts.length; si++) {
+                const { isCode, depth } = codeMap(scripts[si].code);
+                const re = new RegExp('\\b(const|let|var)\\s+' + name + '\\b', 'g');
+                let m;
+                while ((m = re.exec(scripts[si].code))) {
+                    if (!isCode[m.index]) continue;
+                    decls.push({ si, index: m.index, keyword: m[1], keywordEnd: m.index + m[1].length, depth: depth[m.index] });
+                }
+            }
+            const byDepth = new Map();
+            for (const d of decls) {
+                if (!byDepth.has(d.depth)) byDepth.set(d.depth, []);
+                byDepth.get(d.depth).push(d);
+            }
+            // The shallowest depth with a duplicate is the one the parser named: a legal shadowing declaration in a
+            // deeper block cannot be the duplicate, and a conflicting top-level one is shallower.
+            const group = [...byDepth.entries()].filter(([, g]) => g.length > 1).sort((a, b) => a[0] - b[0])[0];
+            if (!group) return null;
+            const declsInGroup = group[1].sort((a, b) => a.si - b.si || a.index - b.index);
+            const edits = new Map();
+            for (let i = 0; i < declsInGroup.length; i++) {
+                const d = declsInGroup[i];
+                const code = scripts[d.si].code;
+                let end = d.keywordEnd;
+                let replacement = '';
+                if (i === 0) {
+                    if (d.keyword !== 'const') continue;
+                    replacement = 'let';
+                } else {
+                    // Drop the keyword and the whitespace after it: "let maxVal = 1" becomes "maxVal = 1".
+                    while (end < code.length && /\s/.test(code[end])) end++;
+                }
+                if (!edits.has(d.si)) edits.set(d.si, []);
+                edits.get(d.si).push({ from: d.index, to: end, text: replacement });
+            }
+            for (const [si, list] of edits) {
+                list.sort((a, b) => b.from - a.from);
+                let code = scripts[si].code;
+                for (const e of list) code = code.slice(0, e.from) + e.text + code.slice(e.to);
+                scripts[si].code = code;
+            }
+            changed = true;
+        }
+    }
+    if (!changed) return null;
+    let out = text;
+    for (let i = scripts.length - 1; i >= 0; i--) {
+        const s = scripts[i];
+        out = out.slice(0, s.openEnd) + s.code + out.slice(s.openEnd + s.originalLength);
+    }
+    return out;
+}
+
+/** The scripts that still cannot run, alone or after the ones before them; the repair above handles the duplicate
+ *  declaration case, this is the honest fallback for every other syntax error. */
+function scriptProblems(html) {
+    const scripts = inlineScripts(html);
+    const bad = new Map();
+    let prefix = '';
+    for (const script of scripts) {
+        try {
+            new vm.Script(script.code, { filename: 'model-script.js' });
+        } catch (err) {
+            bad.set(script, err);
+            continue;
+        }
+        try {
+            new vm.Script(prefix + '\n;\n' + script.code, { filename: 'model-scripts.js' });
+            prefix += '\n;\n' + script.code;
+        } catch (err) {
+            bad.set(script, err);
+        }
+    }
+    return { scripts, bad };
+}
+
+/** The document without the scripts that cannot run, and a visible line naming the reason (the rest of the output
+ *  still renders: its HTML and CSS are the model's own work, and often all that can be shown). */
+function withoutUnrunnableScripts(html) {
+    let text = String(html == null ? '' : html);
+    const repaired = repairDuplicateDeclarations(text);
+    if (repaired) text = repaired;
+    const { scripts, bad } = scriptProblems(text);
+    if (!bad.size) return text;
+    let out = text;
+    for (const script of scripts.slice().reverse()) {
+        if (bad.has(script)) out = out.slice(0, script.start) + out.slice(script.start + script.length);
+    }
+    const messages = [...new Set([...bad.values()].map((err) => String((err && err.message) || err)))];
+    const note = '<div class="ov-entry-script-error" data-ov-entry-script-error="1" role="status"'
+        + ' style="margin:0;padding:.6rem .8rem;font:600 12px/1.45 system-ui,sans-serif;background:#3a1d1d;color:#ffd7d7;border-bottom:1px solid #6b3030">'
+        + 'This output\'s script could not run: <code style="font-weight:500">' + esc(messages.join('; ')) + '</code></div>';
+    const body = /<body\b[^>]*>/i.exec(out);
+    if (body) {
+        const at = body.index + body[0].length;
+        return out.slice(0, at) + note + out.slice(at);
+    }
+    return note + out;
+}
+
 /** The namespace names an SVG needs. They look like URLs but are never fetched, so the pass below keeps them: without
  *  them the browser reads the document as plain XML and shows only its text (11-01: every svg_art entry did). */
 const SVG_NAMESPACES = Object.freeze([
@@ -172,6 +352,7 @@ function modelDocument(kind, payload, opts) {
     else if (typeof p.gltf_base64 === 'string' && p.gltf_base64.trim()) body = gltfPage(p.gltf_base64);
     else body = '<p>Nothing was generated for this entry.</p>';
     body = truncateBytes(body, MAX_ENTRY_BYTES);
+    body = withoutUnrunnableScripts(body);
     // A whole page of the model's own gets the import map too (an addon imports the bare "three"), unless it has one.
     const own = /<html\b/i.test(body);
     const withMap = own && !/type\s*=\s*["']?importmap/i.test(body)
@@ -268,4 +449,5 @@ function wrapperDocument(opts) {
 module.exports = {
     RENDER_ORIGIN, PINNED_ORIGINS, VENDOR, SANDBOX, WRAPPER_SANDBOX, DEFAULT_LIMIT_MS, MAX_ENTRY_BYTES,
     FRAME_ANCESTORS, PAYLOAD_FIELD, codeOf, payloadFor, renderablePayload, wrapperCsp, cspFor, applyNonce, sanitizeSvg, fitSvg, SVG_NAMESPACES, limitMsOf, modeOf, modelDocument, wrapperDocument,
+    repairDuplicateDeclarations, scriptProblems, withoutUnrunnableScripts,
 };
