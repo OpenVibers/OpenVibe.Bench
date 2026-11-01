@@ -9,6 +9,8 @@
 require('dotenv').config();
 const trim = (s) => String(s || '').replace(/\/+$/, '');
 const int = (v, def) => (Number.isFinite(parseInt(v, 10)) ? parseInt(v, 10) : def);
+const float = (v, def) => (Number.isFinite(parseFloat(v)) ? parseFloat(v) : def);
+const bool = (v, def) => (v == null || v === '' ? def : (v === '1' || v === 'true' || v === 'yes' || v === 'on'));
 
 function load(env = process.env) {
     const nodeEnv = env.NODE_ENV || 'development';
@@ -89,6 +91,42 @@ function load(env = process.env) {
             battlePersonPerDay: Math.max(1, int(env.BENCH_BATTLE_PERSON_PER_DAY, 200)),
             battleNetworkPerHour: Math.max(1, int(env.BENCH_BATTLE_NETWORK_PER_HOUR, 120)),
             battleNetworkPerDay: Math.max(1, int(env.BENCH_BATTLE_NETWORK_PER_DAY, 1000)),
+
+            // Signed-out voting (plan L51 step 1). The caps are per UTC day and every one of them answers
+            // 429 bench.limit_anon with the same plain detail: sign in to keep voting today.
+            anon: {
+                enabled: bool(env.BENCH_ANON_ENABLED, true),
+                // Per anonymous voter per day.
+                voterPerDay: Math.max(1, int(env.BENCH_ANON_VOTER_PER_DAY, 30)),
+                // Per address per day. Bench keeps only a salted hash of the address, salted per day.
+                ipPerDay: Math.max(1, int(env.BENCH_ANON_IP_PER_DAY, 60)),
+                // Per relaying service per day.
+                relayPerDay: Math.max(1, int(env.BENCH_ANON_RELAY_PER_DAY, 3000)),
+                // Every anonymous vote on the site, per day.
+                globalPerDay: Math.max(1, int(env.BENCH_ANON_GLOBAL_PER_DAY, 20000)),
+                // The first-party services that may relay an anonymous voter (X-OV-Voter).
+                relayServices: String(env.BENCH_ANON_RELAY_SERVICES || 'design').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean),
+                // The secret the voter cookie is signed with and the voter id is hashed with. Empty falls back to
+                // the OAuth client secret, and then to a per-process secret (which resets the caps on a restart).
+                secret: String(env.BENCH_ANON_SECRET || '').trim(),
+                cookieName: String(env.BENCH_ANON_COOKIE || 'bench_anon').trim() || 'bench_anon',
+                cookieDays: Math.max(1, int(env.BENCH_ANON_COOKIE_DAYS, 180)),
+            },
+            // The daily rounds (plan L51 step 2): one round per design kind per day, so there is always
+            // something to judge. Off until the owner turns it on in production.
+            daily: {
+                enabled: bool(env.BENCH_DAILY_ROUNDS, false),
+                // The job never starts under BENCH_DRILL unless this is set too (the tests use it).
+                enabledInDrill: bool(env.BENCH_DAILY_ROUNDS_IN_DRILL, false),
+                // The one UTC hour the day's rounds are made.
+                hourUtc: Math.min(23, Math.max(0, int(env.BENCH_DAILY_ROUNDS_HOUR_UTC, 8))),
+                // What the day's rounds may cost, in US dollars.
+                budgetUsd: Math.max(0, float(env.BENCH_DAILY_BUDGET_USD, 1.00)),
+                // What one round is assumed to cost, until the real cost of the models is known.
+                estimateUsd: Math.max(0, float(env.BENCH_DAILY_ROUND_ESTIMATE_USD, 0.05)),
+                // How often the job looks at the clock.
+                pollMs: Math.max(30_000, int(env.BENCH_DAILY_POLL_MS, 300_000)),
+            },
         },
     };
 }

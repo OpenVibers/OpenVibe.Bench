@@ -15,6 +15,7 @@ function createLifecycle({ server, ctx, exit, signals, timers = [], extra = [] }
             () => { for (const t of timers) clearInterval(t); },
             () => ctx.keys.client.stop(),
             () => ctx.jobs.stop(),
+            () => ctx.daily.stop(),
             () => ctx.publisher.stop(),
             async () => { clearInterval(ctx.telemetryTick); if (ctx.retention) await ctx.retention.stop(); if (ctx.telemetry) await ctx.telemetry.stop(); },
             () => ctx.s.close(),
@@ -42,6 +43,8 @@ async function start() {
 
     // Jobs: rounds and private eval runs. Off under BENCH_DRILL; tests call tick().
     ctx.jobs.start();
+    // The daily rounds (one per design kind per day). Off until BENCH_DAILY_ROUNDS is on; never under the drill.
+    ctx.daily.start();
     // Outbox publisher → OpenVibe.Events.
     ctx.publisher.start();
 

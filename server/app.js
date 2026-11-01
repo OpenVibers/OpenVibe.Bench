@@ -35,6 +35,8 @@ const { createEmbedRoutes } = require('./http/embed');
 const { createWatchPages } = require('./http/watch');
 const { createWatches } = require('./watch/watch');
 const { createBattles } = require('./bench/battles');
+const { createAnon } = require('./bench/anon');
+const { createDailyRounds } = require('./bench/daily');
 const { createBattlePages } = require('./http/battle');
 const { createRatingsPages } = require('./http/ratings');
 const { createRenderRoutes } = require('./http/render');
@@ -80,6 +82,9 @@ async function createApp(opts = {}) {
     const mirror = require('./bench/mirror').createMirror({ s, registry, fetchImpl, log });
     const ai = opts.benchAi || createBenchAi({ config, fetchImpl, log });
     const jobs = createBenchJobs({ s, bench, ai, config, log });
+    // The signed-out voter (the cookie, the relay header and the daily caps) and the daily rounds job.
+    const anon = createAnon({ s, config, log });
+    const daily = createDailyRounds({ s, bench, ai, config, anon, log });
     const publisher = createPublisher({ config, s, fetchImpl, log });
 
     await bench.seedKinds();
@@ -94,6 +99,7 @@ async function createApp(opts = {}) {
     const launcher = createLauncher({ config, registry, fetchImpl: fetchImpl || globalThis.fetch, log });
     const ctx = {
         config, s, keys, sso, principal, bench, registry, launcher, ai, jobs, publisher, accountData, accountSend, log, fetchImpl,
+        anon, daily,
         imports, mirror,
         random: opts.random || Math.random,
     };

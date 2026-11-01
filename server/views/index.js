@@ -57,7 +57,7 @@ ${ep('GET', '/api/v1/kinds', 'The benchmark kinds.')}
 ${ep('GET', '/api/v1/kinds/:kindId', 'One kind and its entry schema and metrics.')}
 ${ep('GET', '/api/v1/tasks/:id', 'One task.')}
 ${ep('GET', '/api/v1/rounds/:id', 'One round with entries; entries stay blind until the caller has judged or started the round.')}
-${ep('GET', '/api/v1/boards/:kindId?type=elo|pareto|cost', 'A rendered board.')}
+${ep('GET', '/api/v1/boards/:kindId?type=elo|pareto|cost&voters=people|anon', 'A rendered board. <code>voters=people</code> shows the signed-in votes alone, <code>voters=anon</code> the anonymous ones; every board says how many votes of each kind it holds.')}
 ${ep('GET', '/api/v1/models/:model', 'One model across every kind.')}
 ${ep('GET', '/api/v1/datasets/:kindId.jsonl', 'The open dataset (prompts, entries, judgements without voter ids, ratings).')}
 ${ep('GET', '/api/v1/datasets/benchmarks.jsonl', 'Every public benchmark, its visible tasks and every run, with no person id.')}
@@ -66,8 +66,8 @@ ${ep('GET', '/api/v1/datasets/benchmarks.jsonl', 'Every public benchmark, its vi
 ${ep('POST', '/api/v1/kinds/:kindId/tasks', '<code>{ prompt, task_class?, public? }</code>. A person or a service with bench.task.create.')}
 ${ep('POST', '/api/v1/tasks/:id/rounds', '<code>{ offers?, seed? }</code>. Pins a reproducible round; the job generates entries.')}
 ${ep('POST', '/api/v1/rounds/:id/entries', 'A room submits outside entries (a game match, a test-suite run) with a service token carrying bench.entry.create.')}
-${ep('GET', '/api/v1/judgements/next?kind=&judge=', 'The next blind pair for this person.')}
-${ep('POST', '/api/v1/rounds/:id/judgements', '<code>{ judge?, pair?, outcome?, score?, vote_counts? }</code>. Human judges are people; automatic/test/game judges and audience_poll are services with bench.judgement.cast. An audience_poll supplies { left, right, tie, voters }; it changes Elo as one game regardless of audience size. A zero-voter poll is recorded without changing ratings.')}
+${ep('GET', '/api/v1/judgements/next?kind=&judge=', 'The next blind pair for this person, or for an anonymous voter (the signed cookie, or the X-OV-Voter header a relaying service sends).')}
+${ep('POST', '/api/v1/rounds/:id/judgements', '<code>{ judge?, pair?, outcome?, score?, vote_counts? }</code>. Human judges are people; automatic/test/game judges and audience_poll are services with bench.judgement.cast. An audience_poll supplies { left, right, tie, voters }; it changes Elo as one game regardless of audience size. A zero-voter poll is recorded without changing ratings. A service on the relay allow-list may cast the vote of an anonymous voter it names in <code>X-OV-Voter: anon:&lt;id&gt;</code>.')}
 ${ep('POST', '/api/v1/evals', 'Create a private task suite (never in the public dataset).')}
 ${ep('POST', '/api/v1/evals/:id/run', 'Run a private eval against chosen offers, under the free daily cap.')}
 ${ep('GET', '/api/v1/evals/:id/results', 'A private eval and its runs.')}

@@ -158,16 +158,23 @@ function pane(slot, revealed) {
         + frame + facts + '</figure>';
 }
 
-function voteForm(round, signedIn) {
+/**
+ * The vote form. A signed-in person votes as themselves. A visitor who has not signed in votes as the anonymous
+ * voter their browser holds: one vote per browser, a limit a day, and the pair stays blind until they vote.
+ */
+function voteForm(round, { signedIn = false, canVote = true } = {}) {
     if (round.revealed) {
         return '<section class="sc-vote sc-vote-done" data-vote-state="revealed">'
             + '<p>Thanks: the identities are open now.</p>'
             + '<p><a href="/showcase/round/' + esc(round.id) + '?share=1">Share this pair</a></p></section>';
     }
-    if (!signedIn) {
+    if (!canVote) {
         return '<section class="sc-vote" data-vote-state="signed-out">'
             + '<p><a href="/auth/login?next=' + encodeURIComponent('/showcase/round/' + round.id) + '">Sign in to vote</a></p></section>';
     }
+    const note = signedIn
+        ? ''
+        : '<p class="sc-vote-note" data-vote-note="1">You are voting without signing in: one vote per browser, and a limit a day.</p>';
     const game = round.is_game
         ? '<fieldset class="sc-vote-more"><legend>More fun</legend>'
         + '<label><input type="radio" name="more_fun" value="A"> Pane A</label>'
@@ -175,7 +182,8 @@ function voteForm(round, signedIn) {
         + '<label><input type="radio" name="more_fun" value="tie"> Same</label></fieldset>'
         + '<label class="sc-vote-check"><input type="checkbox" name="crashed" value="1"> One of them crashed</label>'
         : '';
-    return '<form class="sc-vote" method="post" action="/showcase/round/' + esc(round.id) + '" data-vote-form="1">'
+    return '<form class="sc-vote" method="post" action="/showcase/round/' + esc(round.id) + '" data-vote-form="1" data-vote-state="' + (signedIn ? 'signed-in' : 'anonymous') + '">'
+        + note
         + '<fieldset><legend>Which one wins?</legend>'
         + '<label><input type="radio" name="outcome" value="A" required> Pane A</label>'
         + '<label><input type="radio" name="outcome" value="B"> Pane B</label>'
@@ -201,14 +209,15 @@ function galleryView(pairs) {
         + '</section>';
 }
 
-function roundView(round, signedIn) {
+function roundView(round, { signedIn = false, canVote = true, note = '' } = {}) {
     const panes = round.slots.map((s) => pane(s, round.revealed)).join('');
     return '<section class="sc-showcase sc-round" data-showcase="round" data-round-id="' + esc(round.id) + '" data-kind="' + esc(round.kind_id) + '">'
         + '<h1 class="sc-round-prompt" data-prompt="1">' + esc(round.prompt) + '</h1>'
         + '<p class="sc-round-meta"><span class="sc-kind">' + esc(round.kind_name) + '</span>'
         + '<span class="sc-votes" data-votes="' + esc(round.votes) + '">' + esc(round.votes) + ' votes</span></p>'
+        + (note ? '<p class="sc-vote-note" data-vote-note="1">' + esc(note) + '</p>' : '')
         + '<div class="sc-round-panes" data-panes="2">' + panes + '</div>'
-        + voteForm(round, signedIn)
+        + voteForm(round, { signedIn, canVote })
         + '</section>';
 }
 
@@ -219,6 +228,16 @@ function createShowcaseRoutes(ctx) {
     r.use(principal.middleware);
     const problem = (res, status, code, detail) => http.sendProblem(res, status, code, { detail, ctx: res.req && res.req.ov });
     const subjectOf = (req) => (req.principal && req.principal.kind === 'user' ? req.principal.subject : null);
+
+    /** Who is looking: the person who is signed in, or the anonymous voter the signed cookie names. */
+    async function viewerSubjectOf(req) {
+        const person = subjectOf(req);
+        if (person) return person;
+        try {
+            const anon = ctx.anon.resolve(req, req.principal, { mint: false });
+            return anon ? anon.subject : null;
+        } catch { return null; }
+    }
 
     r.get('/pairs', async (req, res) => {
         try {
@@ -233,7 +252,7 @@ function createShowcaseRoutes(ctx) {
 
     r.get('/rounds/:id', async (req, res) => {
         try {
-            const round = await loadRound(ctx, String(req.params.id || ''), subjectOf(req));
+            const round = await loadRound(ctx, String(req.params.id || ''), await viewerSubjectOf(req));
             if (!round) return problem(res, 404, 'bench.round_not_found', 'No such round.');
             res.set('Cache-Control', round.revealed ? 'public, max-age=30' : 'private, no-store');
             return res.json({ round });
@@ -246,22 +265,43 @@ function createShowcaseRoutes(ctx) {
     r.post('/rounds/:id/vote', async (req, res) => {
         const b = req.body && typeof req.body === 'object' ? req.body : {};
         const subject = subjectOf(req);
-        if (!subject) return problem(res, 401, 'bench.sign_in_required', 'Sign in at bench.openvibe.services to vote.');
-        if (req.principal.viaSession && !sameOrigin(req, config)) {
-            return problem(res, 403, 'bench.cross_site', 'A signed-in request that changes something must come from bench.openvibe.services itself.');
-        }
         const map = { A: 'left', B: 'right', tie: 'tie', both_bad: 'both_bad' };
         const outcome = map[String(b.outcome || '')];
         if (!outcome) return problem(res, 422, 'bench.invalid_outcome', 'The outcome must be A, B, tie or both_bad.');
         const round = await loadRound(ctx, String(req.params.id || ''), null);
         if (!round || !round.ready) return problem(res, 404, 'bench.round_not_found', 'No such round.');
+        // The voter: the person who is signed in, or the anonymous voter the browser cookie names.
+        let voter = null;
+        if (subject) {
+            if (req.principal.viaSession && !sameOrigin(req, config)) {
+                return problem(res, 403, 'bench.cross_site', 'A signed-in request that changes something must come from bench.openvibe.services itself.');
+            }
+            voter = { subject, voterKind: 'person', extraCreators: [] };
+        } else {
+            if (!ctx.anon.enabled()) {
+                return problem(res, 403, 'bench.anon_disabled', 'Voting without signing in is off at the moment.');
+            }
+            if (!sameOrigin(req, config)) {
+                return problem(res, 403, 'bench.cross_site', 'A vote that changes something must come from bench.openvibe.services itself.');
+            }
+            const anon = ctx.anon.resolve(req, req.principal);
+            if (!anon) return problem(res, 401, 'bench.sign_in_required', 'Sign in at bench.openvibe.services to vote.');
+            if (anon.minted) ctx.anon.setCookie(res, anon.opaque);
+            voter = {
+                subject: anon.subject, voterKind: 'anon', extraCreators: [],
+                quota: () => ctx.anon.takeQuota(anon),
+            };
+        }
         try {
             const out = await bench.castJudgement({
                 roundId: round.id,
                 judge: 'human_pairwise',
                 pair: { left: round.slots[0].entry_id, right: round.slots[1].entry_id },
                 outcome,
-                subject,
+                subject: voter.subject,
+                voterKind: voter.voterKind,
+                extraCreators: voter.extraCreators,
+                quota: voter.quota || null,
             });
             if (round.is_game && (b.more_fun || b.crashed)) {
                 const moreFun = b.more_fun === 'A' ? 1 : b.more_fun === 'B' ? -1 : 0;
@@ -270,7 +310,8 @@ function createShowcaseRoutes(ctx) {
                     judge: 'rubric',
                     judgeName: b.crashed ? 'crashed' : 'more_fun',
                     score: b.crashed ? 1 : moreFun,
-                    subject,
+                    subject: voter.subject,
+                    voterKind: voter.voterKind,
                 });
             }
             res.set('Cache-Control', 'private, no-store');
@@ -299,6 +340,8 @@ function createShowcaseRoutes(ctx) {
 function createShowcasePages(ctx) {
     const r = express.Router();
     const { config, principal } = ctx;
+    // The vote is a plain form post: the pair is judged without JavaScript.
+    r.use(express.urlencoded({ extended: false, limit: '16kb' }));
     r.use(principal.middleware);
     const viewerOf = (req) => (req.principal && req.principal.kind === 'user'
         ? { kind: 'user', subject: req.principal.subject, displayName: req.principal.displayName || req.principal.username }
@@ -318,17 +361,25 @@ function createShowcasePages(ctx) {
 
     r.get('/round/:id', async (req, res) => {
         const subject = req.principal && req.principal.kind === 'user' ? req.principal.subject : null;
-        const round = await loadRound(ctx, String(req.params.id || ''), subject);
+        // A visitor who has not signed in gets an anonymous voter id in a signed cookie, and may judge with it.
+        let anon = null;
+        if (!subject && ctx.anon.enabled()) {
+            try { anon = ctx.anon.resolve(req, req.principal); } catch { anon = null; }
+            if (anon && anon.minted) ctx.anon.setCookie(res, anon.opaque);
+        }
+        const viewerSubject = subject || (anon ? anon.subject : null);
+        const round = await loadRound(ctx, String(req.params.id || ''), viewerSubject);
         if (!round) {
             return send(res, 404, { config, viewer: viewerOf(req), path: req.originalUrl, title: 'No such round', body: raw('<section><h1>No such round</h1></section>') });
         }
+        const note = String(req.query.voted || '') === 'limit' ? 'Sign in to keep voting today.' : '';
         return send(res, 200, {
             config,
             viewer: viewerOf(req),
             path: req.originalUrl,   // the navbar's current link and the canonical URL
             title: 'Compare two outputs',
             description: 'Two models, one prompt, side by side.',
-            body: raw(roundView(round, Boolean(subject))),
+            body: raw(roundView(round, { signedIn: Boolean(subject), canVote: Boolean(subject) || Boolean(anon), note })),
         });
     });
 
@@ -336,20 +387,37 @@ function createShowcasePages(ctx) {
         const subject = req.principal && req.principal.kind === 'user' ? req.principal.subject : null;
         const round = await loadRound(ctx, String(req.params.id || ''), null);
         if (!round) return res.redirect('/showcase');
-        if (!subject) return res.redirect('/auth/login?next=' + encodeURIComponent('/showcase/round/' + round.id));
         const map = { A: 'left', B: 'right', tie: 'tie', both_bad: 'both_bad' };
         const outcome = map[String((req.body && req.body.outcome) || '')];
         if (!outcome) return res.redirect('/showcase/round/' + round.id);
+        // The voter: the person who is signed in, or the anonymous voter the cookie names.
+        let voter = null;
+        if (subject) {
+            voter = { subject, voterKind: 'person' };
+        } else {
+            const login = '/auth/login?next=' + encodeURIComponent('/showcase/round/' + round.id);
+            if (!ctx.anon.enabled() || !sameOrigin(req, config)) return res.redirect(login);
+            let anon = null;
+            try { anon = ctx.anon.resolve(req, req.principal); } catch { anon = null; }
+            if (!anon) return res.redirect(login);
+            if (anon.minted) ctx.anon.setCookie(res, anon.opaque);
+            voter = { subject: anon.subject, voterKind: 'anon', quota: () => ctx.anon.takeQuota(anon) };
+        }
         try {
             await ctx.bench.castJudgement({
                 roundId: round.id,
                 judge: 'human_pairwise',
                 pair: { left: round.slots[0].entry_id, right: round.slots[1].entry_id },
                 outcome,
-                subject,
+                subject: voter.subject,
+                voterKind: voter.voterKind,
+                quota: voter.quota || null,
             });
         } catch (err) {
             ctx.log.warn('[OpenVibe.Bench] showcase page vote failed:', (err && err.message) || err);
+            if (err && err.status === 429 && err.code === 'bench.limit_anon') {
+                return res.redirect('/showcase/round/' + round.id + '?voted=limit');
+            }
         }
         return res.redirect('/showcase/round/' + round.id);
     });
