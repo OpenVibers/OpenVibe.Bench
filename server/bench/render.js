@@ -98,9 +98,23 @@ function applyNonce(html, nonce) {
         .replace(/<script\b/gi, '<script nonce="' + nonce + '"');
 }
 
+/** The namespace names an SVG needs. They look like URLs but are never fetched, so the pass below keeps them: without
+ *  them the browser reads the document as plain XML and shows only its text (11-01: every svg_art entry did). */
+const SVG_NAMESPACES = Object.freeze([
+    'http://www.w3.org/2000/svg',
+    'http://www.w3.org/1999/xlink',
+    'http://www.w3.org/XML/1998/namespace',
+]);
+
 /** SVG-specific pass (spec 2.3): no script, no foreignObject, no external reference, no event handler, no @import. */
 function sanitizeSvg(input) {
     let s = input == null ? '' : String(input);
+    const kept = [];
+    s = s.replace(/(xmlns(?::[\w-]+)?\s*=\s*)(["'])(https?:\/\/[^"']*)\2/gi, (m, attr, q, url) => {
+        if (!SVG_NAMESPACES.includes(url)) return m;
+        kept.push(url);
+        return attr + q + '\u0000NS' + (kept.length - 1) + '\u0000' + q;
+    });
     s = s.replace(/<!--[\s\S]*?-->/g, '');
     s = s.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '');
     s = s.replace(/<\/?script\b[^>]*>/gi, '');
@@ -112,7 +126,18 @@ function sanitizeSvg(input) {
     s = s.replace(/(xlink:href|href|src)\s*=\s*(["'])\s*(?:https?:)?\/\/[^"']*\2/gi, '$1="#blocked"');
     s = s.replace(/(?:https?:)?\/\/[\w.-]+/gi, 'blocked:');
     s = s.replace(/javascript\s*:/gi, 'blocked:');
+    s = s.replace(/\u0000NS(\d+)\u0000/g, (m, i) => kept[Number(i)] || '');
     return truncateBytes(s, MAX_ENTRY_BYTES);
+}
+
+/** Shown on its own in a frame, the drawing fills the frame: the root's fixed width and height give way to 100% when
+ *  it has a viewBox to scale by (the aspect ratio is kept), so a 1200 by 700 poster is not cropped in a small pane. */
+function fitSvg(svg) {
+    const s = String(svg == null ? '' : svg);
+    const m = /<svg\b[^>]*>/i.exec(s);
+    if (!m || !/\sviewBox\s*=/i.test(m[0])) return s;
+    const root = m[0].replace(/\s(width|height)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '').replace(/<svg\b/i, '<svg width="100%" height="100%"');
+    return s.slice(0, m.index) + root + s.slice(m.index + m[0].length);
 }
 
 /** The wall-clock a kind may run, from the kind itself. */
@@ -242,5 +267,5 @@ function wrapperDocument(opts) {
 
 module.exports = {
     RENDER_ORIGIN, PINNED_ORIGINS, VENDOR, SANDBOX, WRAPPER_SANDBOX, DEFAULT_LIMIT_MS, MAX_ENTRY_BYTES,
-    FRAME_ANCESTORS, PAYLOAD_FIELD, codeOf, payloadFor, renderablePayload, wrapperCsp, cspFor, applyNonce, sanitizeSvg, limitMsOf, modeOf, modelDocument, wrapperDocument,
+    FRAME_ANCESTORS, PAYLOAD_FIELD, codeOf, payloadFor, renderablePayload, wrapperCsp, cspFor, applyNonce, sanitizeSvg, fitSvg, SVG_NAMESPACES, limitMsOf, modeOf, modelDocument, wrapperDocument,
 };

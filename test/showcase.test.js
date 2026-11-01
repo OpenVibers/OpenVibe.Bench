@@ -115,6 +115,20 @@ const HOSTILE = [
         assert.ok(own.includes('<script nonce="N2" type="module">') && !own.includes('guess'), 'a guessed nonce is replaced by ours');
     });
 
+    await check('an SVG keeps its namespace and fills its frame; external references stay blocked (11-01)', async () => {
+        const art = '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1200 700" width="1200" height="700">'
+            + '<image href="https://evil.example/x.png"/><use xlink:href="http://evil.example/s.svg#a"/><rect fill="url(#g)" width="10" height="10"/></svg>';
+        const out = renderLib.sanitizeSvg(art);
+        assert.ok(out.startsWith('<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"'), out.slice(0, 120));
+        assert.ok(!out.includes('evil.example'), 'external references are still blocked');
+        assert.ok(out.includes('fill="url(#g)"'), 'a local reference stays');
+        assert.ok(!renderLib.sanitizeSvg('<svg xmlns="https://evil.example/ns"></svg>').includes('evil.example'), 'only the real namespaces are kept');
+        const fit = renderLib.fitSvg(out);
+        assert.match(fit, /^<svg width="100%" height="100%" xmlns="http:\/\/www\.w3\.org\/2000\/svg"[^>]*viewBox="0 0 1200 700">/);
+        assert.ok(fit.includes('<rect fill="url(#g)" width="10" height="10"/>'), 'only the root gives up its size');
+        assert.strictEqual(renderLib.fitSvg('<svg width="24" height="24"></svg>'), '<svg width="24" height="24"></svg>', 'no viewBox: kept as drawn');
+    });
+
     await check('a generated answer renders from its entry type\'s field (10-30: every seeded entry was { text } and showed nothing)', async () => {
         assert.deepStrictEqual(renderLib.payloadFor('ui_page', 'Here you go:\n```html\n<p>hi</p>\n```\nEnjoy.'), { html: '<p>hi</p>' });
         assert.deepStrictEqual(renderLib.payloadFor('svg_art', '<svg viewBox="0 0 1 1"></svg>'), { svg: '<svg viewBox="0 0 1 1"></svg>' });
