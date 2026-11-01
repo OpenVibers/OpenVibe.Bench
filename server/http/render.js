@@ -76,7 +76,7 @@ function createRenderRoutes(ctx) {
         const nonce = crypto.randomBytes(16).toString('base64');
         if (kind && renderLib.modeOf(kind) === 'static') {
             const p = renderLib.renderablePayload(kind, entry.payload);
-            const svg = renderLib.sanitizeSvg(p.svg || p.html || '');
+            const svg = renderLib.fitSvg(renderLib.sanitizeSvg(p.svg || p.html || ''));
             return bare(res)
                 .set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox")
                 .type('image/svg+xml')
