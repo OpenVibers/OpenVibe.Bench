@@ -33,6 +33,6 @@ JSON under `/api/v1`; errors are `application/problem+json`. See `/docs` for the
 
 <!-- versions:start -->
 - openvibe-contracts: v0.247.0
-- openvibe-sdk: v0.81.0
+- openvibe-sdk: v0.82.0
 - openvibe-shared: v4.105.0
 <!-- versions:end -->
