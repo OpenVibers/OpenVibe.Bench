@@ -517,18 +517,15 @@ html, body { margin: 0; background: var(--bg-primary, #0a0f1c); color: var(--tex
 .br-usethis-details .br-usethis-box { margin: 12px 16px; }
 .br-usethis-details .br-follow { margin: 0 16px 14px; }
 
-@supports selector(:has(*)) {
-  @media (max-width: 640px) {
+/* On a phone every section shows (the owner, 2026-10-31: never hide content to shorten); the chips are links that jump
+   to Rankings, Tasks or Runs, and each section is compact. */
+@media (max-width: 640px) {
     .br-sec-pick { display: flex; gap: 8px; overflow-x: auto; margin: 14px -16px 0; padding: 2px 16px 4px; scrollbar-width: none; overscroll-behavior-x: contain; }
     .br-sec-pick::-webkit-scrollbar { display: none; }
-    .br-sec-pick input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
-    .br-sec-pick label { display: inline-flex; align-items: center; flex: none; min-height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-secondary); font-size: .86rem; font-weight: 700; white-space: nowrap; cursor: pointer; }
-    .br-sec-pick input:checked + label { color: var(--text-primary); border-color: var(--room-accent); background: color-mix(in srgb, var(--room-accent) 14%, transparent); }
-    .br-sec-pick input:focus-visible + label { outline: 2px solid var(--room-accent); outline-offset: 2px; }
-    .br-sections > section { display: none; margin-top: 16px; }
-    .br-sections:has(#br-view-rank:checked) #br-rank,
-    .br-sections:has(#br-view-tasks:checked) #br-tasks,
-    .br-sections:has(#br-view-runs:checked) #br-runs { display: block; }
+    .br-sec-pick a { display: inline-flex; align-items: center; flex: none; min-height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-secondary); font-size: .86rem; font-weight: 700; white-space: nowrap; text-decoration: none; }
+    .br-sec-pick a:hover, .br-sec-pick a:focus-visible { color: var(--text-primary); border-color: var(--room-accent); }
+    .br-sec-pick a:focus-visible { outline: 2px solid var(--room-accent); outline-offset: 2px; }
+    .br-sections > section { margin-top: 22px; scroll-margin-top: 72px; }
 
     /* Tasks: one compact line each, number and text, no card, two lines at most. */
     #br-tasks .br-tasks { gap: 0; margin-top: 4px; }
@@ -554,7 +551,6 @@ html, body { margin: 0; background: var(--bg-primary, #0a0f1c); color: var(--tex
     #br-runs .br-score-of { font-size: .66rem; }
     #br-runs .br-score .br-bar { flex: 0 0 24px; height: 3px; margin: 0 0 0 3px; align-self: center; }
     #br-runs .br-prov { flex: none; padding: 1px 6px; font-size: .68rem; }
-  }
 }
 .br-fold-toggle { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
 .br-fold-h { display: flex; align-items: center; gap: 10px; cursor: pointer; }
