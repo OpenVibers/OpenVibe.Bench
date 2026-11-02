@@ -15,7 +15,7 @@ const { render, esc } = require('./html');
 
 const NETWORK_URL = 'https://openvibe.network';
 const SITE_NAME = 'OpenVibe.Bench';
-const TAGLINE = 'One AI benchmark and comparison engine for every room.';
+const TAGLINE = 'One AI benchmark and comparison engine for every room';
 const PUBLIC_DIR = path.join(__dirname, '..', '..', 'public');
 const NAV = [
     { label: 'Home', href: '/' },
