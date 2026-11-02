@@ -103,17 +103,15 @@ function runDoc(benchmark, over = {}) {
         assert.ok(value.text.includes('aria-current="page"') && value.text.includes('/ $'), 'the value tab is current and shows score per dollar');
     });
 
-    await check('the phone sections are chips, one per section, with Rankings picked first', async () => {
+    await check('the phone sections are all shown, and the chips are links that jump to them', async () => {
         const res = await t.get(`/benchmarks/${pub.id}`);
-        const chips = [...res.text.matchAll(/<input type="radio" name="br-view" id="br-view-([a-z]+)" value="[a-z]+"( checked)?>/g)];
-        assert.deepStrictEqual(chips.map((m) => m[1]), ['rank', 'tasks', 'runs'], 'one chip per section, in order');
-        assert.deepStrictEqual(chips.filter((m) => m[2]).map((m) => m[1]), ['rank'], 'Rankings is picked first');
-        assert.match(res.text, /<div class="br-sections">[\s\S]*id="br-rank"[\s\S]*id="br-tasks"[\s\S]*id="br-runs"[\s\S]*<\/div>/, 'every section stays in the page');
+        const chips = [...res.text.matchAll(/<nav class="br-sec-pick" aria-label="Benchmark sections">([\s\S]*?)<\/nav>/g)];
+        assert.strictEqual(chips.length, 1, 'one row of chips');
+        assert.deepStrictEqual([...chips[0][1].matchAll(/<a href="#(br-[a-z]+)">/g)].map((m) => m[1]), ['br-rank', 'br-tasks', 'br-runs'], 'a link per section, in order');
+        assert.ok(!/type="radio" name="br-view"/.test(res.text), 'no chip is a radio: nothing is picked');
+        assert.match(res.text, /<div class="br-sections">[\s\S]*id="br-rank"[\s\S]*id="br-tasks"[\s\S]*id="br-runs"[\s\S]*<\/div>/, 'every section is in the page');
         const css = await t.get('/css/bench.css');
-        assert.ok(css.text.includes('@supports selector(:has(*))'), 'the chips are gated on :has()');
-        assert.ok(css.text.includes('.br-sections:has(#br-view-rank:checked) #br-rank'), 'Rankings shows when picked');
-        assert.ok(css.text.includes('.br-sections:has(#br-view-tasks:checked) #br-tasks'), 'Tasks shows when picked');
-        assert.ok(css.text.includes('.br-sections:has(#br-view-runs:checked) #br-runs'), 'Runs shows when picked');
+        assert.ok(!/\.br-sections > section \{ display: none/.test(css.text) && !css.text.includes('#br-view-rank:checked'), 'no section is ever hidden (the owner, 2026-10-31)');
     });
 
     await check('badges and embeds are one closed details on a public page, and absent on a private one', async () => {

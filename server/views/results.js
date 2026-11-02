@@ -415,11 +415,7 @@ ${privateNote}
 <dl class="br-facts"><div><dt>Tasks</dt><dd>${tasks.length}${hidden ? html` <span class="br-fine">(${hidden} hidden)</span>` : ''}</dd></div><div><dt>Judged by</dt><dd>${judges.length ? judges.map((j) => String(j.type).replace(/_/g, ' ')).join(', ') : '—'}</dd></div><div><dt>Limits</dt><dd>${[limits.ms ? fmtMs(limits.ms) : null, limits.tokens ? `${fmtTokens(limits.tokens)} tokens` : null, limits.usd ? fmtUsd(limits.usd) : null].filter(Boolean).join(' · ') || '—'}</dd></div><div><dt>Verified runs</dt><dd>${entries.reduce((n, e) => n + e.runs, 0)}</dd></div></dl>
 ${owner ? shareBox({ benchmark, shareUrl: share && share.shareUrl, error: share && share.error }) : ''}
 <div class="br-sections">
-<div class="br-sec-pick" role="radiogroup" aria-label="Benchmark sections">
-<input type="radio" name="br-view" id="br-view-rank" value="rank" checked><label for="br-view-rank">Rankings</label>
-<input type="radio" name="br-view" id="br-view-tasks" value="tasks"><label for="br-view-tasks">Tasks</label>
-<input type="radio" name="br-view" id="br-view-runs" value="runs"><label for="br-view-runs">Runs</label>
-</div>
+<nav class="br-sec-pick" aria-label="Benchmark sections"><a href="#br-rank">Rankings</a><a href="#br-tasks">Tasks</a><a href="#br-runs">Runs</a></nav>
 ${ownBoards
         ? promptBoards(ownBoards)
         : html`<section class="bm-section" id="br-rank" aria-labelledby="br-rank-h"><div class="bm-head-row"><h2 id="br-rank-h">Rankings</h2>${metricTabs(base, metric)}</div>
