@@ -9,7 +9,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const renderLib = require('../bench/render');
-const { kindById } = require('../kinds');
+const { kindById, isPrivateKind } = require('../kinds');
 
 function createRenderRoutes(ctx) {
     const r = express.Router();
@@ -18,6 +18,8 @@ function createRenderRoutes(ctx) {
         const row = await ctx.s.db.maybe(
             'SELECT e.id, e.payload, e.error, r.kind_id FROM bench_entries e JOIN bench_rounds r ON r.id = e.round_id WHERE e.id = $1',
             [String(id || '')]);
+        // A private kind's entry (a live.clip pick) is never rendered here: its voters see it in the vote itself.
+        if (row && isPrivateKind(row.kind_id)) return null;
         if (!row) {
             const match = /^((?:brn_)[0-9A-HJKMNP-TV-Z]{26})~([A-Za-z0-9_-]{1,120})$/.exec(String(id || ''));
             if (!match) return null;

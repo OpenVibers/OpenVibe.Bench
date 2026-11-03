@@ -8,7 +8,8 @@
  */
 const crypto = require('crypto');
 const { ids } = require('openvibe-contracts');
-const { KINDS, JUDGES, WINNERS, kindById } = require('./kinds');
+const { KINDS, ALL_KINDS, PRIVATE_KIND_IDS, JUDGES, WINNERS, kindById, isPrivateKind } = require('./kinds');
+const clipLib = require('./bench/clip');
 const ratingLib = require('./rating');
 const styleLib = require('./rating/style');
 
@@ -197,7 +198,7 @@ function createStore(s, { log = console, random = Math.random, config = null } =
 
     // ── Kinds ───────────────────────────────────────────────
     async function seedKinds() {
-        for (const k of KINDS) {
+        for (const k of ALL_KINDS) {
             await db.exec(
                 `INSERT INTO bench_kinds (id, room, entry, judge, name, schema, metrics, created_at)
                  VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, now())
@@ -207,8 +208,9 @@ function createStore(s, { log = console, random = Math.random, config = null } =
             );
         }
     }
+    /** The public kinds; a private one (live.clip) is never listed. */
     async function listKinds() {
-        return (await db.many('SELECT * FROM bench_kinds ORDER BY id')).map(wireKind);
+        return (await db.many('SELECT * FROM bench_kinds WHERE NOT (id = ANY($1::text[])) ORDER BY id', [PRIVATE_KIND_IDS])).map(wireKind);
     }
     async function getKind(id) {
         return wireKind(await db.maybe('SELECT * FROM bench_kinds WHERE id = $1', [String(id || '')]));
@@ -218,6 +220,8 @@ function createStore(s, { log = console, random = Math.random, config = null } =
     async function createTask({ kindId, prompt, taskClass = null, public: isPublic = false, subject }) {
         const kind = await getKind(kindId);
         if (!kind) return refusal(422, 'bench.kind_not_found', `No such kind: ${kindId}`);
+        // A private kind's tasks name what is not public (a held-out recording): never public.
+        if (isPrivateKind(kind.id)) isPublic = false;
         const text = String(prompt == null ? '' : prompt).replace(/\s+/g, ' ').trim();
         if (!text) return refusal(422, 'bench.prompt_required', 'A task needs a prompt or spec.');
         if (text.length > 4000) return refusal(422, 'bench.prompt_too_long', 'The prompt must be at most 4000 characters.');
@@ -302,7 +306,9 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         const revealed = viewerSubject != null && (r.created_by === viewerSubject
             || await db.value('SELECT COUNT(*)::int AS n FROM bench_judgements WHERE round_id = $1 AND subject = $2', [r.id, viewerSubject]) > 0);
         const votes = num(await db.value("SELECT COUNT(*)::int AS n FROM bench_judgements WHERE round_id = $1 AND method <> 'game_outcome'", [r.id]));
-        const entries = entryRows.map((e) => wireEntry(e, { blind: !revealed }));
+        // A live.clip playback is only for a voter (nextJudgement); a round read never carries one.
+        const entries = entryRows.map((e) => wireEntry(e, { blind: !revealed }))
+            .map((e) => (isPrivateKind(r.kind_id) ? { ...e, payload: clipLib.forViewer(e.payload, { now: s.now(), playback: false }) } : e));
         const out = { ...wireRound(r), entries, votes };
         if (!revealed) out.blind = true;
         return out;
@@ -313,6 +319,15 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         return await s.tx(async () => {
             const r = await db.maybe('SELECT * FROM bench_rounds WHERE id = $1 FOR UPDATE', [String(roundId || '')]);
             if (!r) throw new BenchError(404, 'bench.round_not_found', 'No such Bench round.');
+            if (r.kind_id === 'live.clip') {
+                // A clip pick: its shape checked, and the policy that chose it pinned on the entry (route), never rewritten.
+                const v = clipLib.validateEntry(payload, { now: s.now() });
+                if (!v.ok) throw new BenchError(422, 'bench.invalid_clip', v.message);
+                payload = v.payload;
+                route = { policy: v.payload.policy };
+                model = model || v.payload.policy.models[0] || `${v.payload.policy.selector}@${v.payload.policy.version}`;
+                provider = provider || 'live';
+            }
             const id = s.newId('bte');
             // The style of the output (how long it is, how much markup it wears) is measured once, here, so the
             // ratings can control for style later without opening the payload again.
@@ -386,7 +401,9 @@ function createStore(s, { log = console, random = Math.random, config = null } =
             [String(kind || ''), subject, creators],
         );
         if (!row) return null;
-        const entries = (await db.many('SELECT * FROM bench_entries WHERE round_id = $1 AND error IS NULL ORDER BY id', [row.id])).map(wireEntry);
+        const entries = (await db.many('SELECT * FROM bench_entries WHERE round_id = $1 AND error IS NULL ORDER BY id', [row.id])).map(wireEntry)
+            // A voter of a private kind sees the playback, while it lasts (clip.forViewer).
+            .map((e) => (isPrivateKind(row.kind_id) ? { ...e, payload: clipLib.forViewer(e.payload, { now: s.now(), playback: true }) } : e));
         if (entries.length < 2) return null;
         const [left, right] = shuffle(entries, rng).slice(0, 2);
         return {
@@ -609,7 +626,7 @@ function createStore(s, { log = console, random = Math.random, config = null } =
 
     async function board(kindId, { type = 'elo', category = CATEGORY_DEFAULT, period = 'all', voters = null } = {}) {
         const kind = await getKind(kindId);
-        if (!kind) return null;
+        if (!kind || isPrivateKind(kind.id)) return null;
         const cat = categoryOf(voters, category);
         const cost = await costStats(kindId);
         const pass = await passRate(kindId);
@@ -700,7 +717,7 @@ function createStore(s, { log = console, random = Math.random, config = null } =
     // ── Dataset (open, no voter ids) ─────────────────────────
     async function dataset(kindId) {
         const kind = await getKind(kindId);
-        if (!kind) return null;
+        if (!kind || isPrivateKind(kind.id)) return null;
         const tasks = (await db.many('SELECT * FROM bench_tasks WHERE kind_id = $1 AND public = true ORDER BY created_at, id', [kindId]))
             .map(wireTask).map(({ created_by, ...rest }) => rest);
         const rounds = (await db.many("SELECT * FROM bench_rounds WHERE kind_id = $1 AND status IN ('ready', 'finished') ORDER BY created_at, id", [kindId]))
@@ -726,6 +743,43 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         for (const j of d.judgements) lines.push(JSON.stringify({ type: 'judgement', ...j }));
         for (const r of d.ratings) lines.push(JSON.stringify({ type: 'rating', ...r }));
         return lines.length ? `${lines.join('\n')}\n` : '';
+    }
+
+    /**
+     * live.clip by policy (selector@version), for its submitter: entries, abstentions, cost, and how its picks fared
+     * in blind votes. accept_rate = (wins + ties) / votes it was in; a both_bad vote counts against both sides.
+     */
+    async function clipPolicies() {
+        const entries = await db.many(`SELECT e.id, e.cost_usd, e.payload FROM bench_entries e JOIN bench_rounds r ON r.id = e.round_id
+                                        WHERE r.kind_id = 'live.clip' AND e.error IS NULL`);
+        const byEntry = new Map();
+        const stats = new Map();
+        for (const e of entries) {
+            const p = typeof e.payload === 'string' ? JSON.parse(e.payload) : (e.payload || {});
+            const key = `${(p.policy && p.policy.selector) || '?'}@${(p.policy && p.policy.version) || '?'}`;
+            byEntry.set(e.id, key);
+            const st = stats.get(key) || { policy: key, entries: 0, abstained: 0, cost_usd: 0, votes: 0, wins: 0, ties: 0, losses: 0, both_bad: 0 };
+            st.entries += 1;
+            if (p.abstained) st.abstained += 1;
+            st.cost_usd += num(e.cost_usd);
+            stats.set(key, st);
+        }
+        const votes = await db.many(`SELECT j.pair, j.outcome FROM bench_judgements j WHERE j.kind_id = 'live.clip' AND j.judge = 'human_pairwise' AND j.pair IS NOT NULL AND j.outcome IS NOT NULL`);
+        for (const v of votes) {
+            const pair = typeof v.pair === 'string' ? JSON.parse(v.pair) : v.pair;
+            const sides = [['left', pair && pair.left], ['right', pair && pair.right]];
+            for (const [side, id] of sides) {
+                const st = stats.get(byEntry.get(id));
+                if (!st) continue;
+                st.votes += 1;
+                if (v.outcome === 'tie') st.ties += 1;
+                else if (v.outcome === 'both_bad') st.both_bad += 1;
+                else if (v.outcome === side) st.wins += 1;
+                else st.losses += 1;
+            }
+        }
+        return [...stats.values()].map((st) => ({ ...st, cost_usd: Math.round(st.cost_usd * 1e6) / 1e6, accept_rate: st.votes ? Math.round(((st.wins + st.ties) / st.votes) * 1000) / 1000 : null }))
+            .sort((a, b) => a.policy.localeCompare(b.policy));
     }
 
     // ── Private evals ────────────────────────────────────────
@@ -786,7 +840,7 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         wireKind, wireTask, wireRound, wireEntry, wireJudgement, wireRating, wireEval, wireEvalRun,
         insertOutbox, seedKinds, listKinds, getKind,
         createTask, getTask,
-        createRound, getRound, addEntry, maybeReady, finishRound,
+        createRound, getRound, addEntry, maybeReady, finishRound, clipPolicies,
         nextJudgement, castJudgement, pairwiseGames,
         board, valueRows, modelSummary, dataset, datasetJsonl,
         createEval, getEval, runEval, evalResults, evalDailyCount,

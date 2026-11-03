@@ -14,6 +14,8 @@
  */
 
 const style = require('./style');
+// Private kinds' votes (live.clip) are never in the open vote dump or the public ratings.
+const { PRIVATE_KIND_IDS } = require('../kinds');
 
 const num = (v, d = 0) => (v == null || Number.isNaN(Number(v)) ? d : Number(v));
 
@@ -26,8 +28,8 @@ async function loadVotes(db) {
           FROM bench_judgements j
           JOIN bench_entries l ON l.id = (j.pair->>'left')
           JOIN bench_entries r ON r.id = (j.pair->>'right')
-          WHERE j.judge = 'human_pairwise' AND j.outcome IS NOT NULL
-          ORDER BY j.at, j.id`);
+          WHERE j.judge = 'human_pairwise' AND j.outcome IS NOT NULL AND NOT (j.kind_id = ANY($1::text[]))
+          ORDER BY j.at, j.id`, [PRIVATE_KIND_IDS]);
     const out = [];
     for (const row of rows) {
         const left = styleOf(row.left_payload, row.left_length, row.left_markup);
