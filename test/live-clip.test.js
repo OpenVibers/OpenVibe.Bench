@@ -119,6 +119,31 @@ const { boot, check, done } = require('./helpers/boot');
         assert.strictEqual(claimed, null, 'the job runner never claims it');
     });
 
+    await check('the battle page: two clips, blind, playable; no share card; the reveal names the pickers only', async () => {
+        const fresh = await newRound();
+        for (const v of ['v3', 'v4']) {
+            const e = await t.get(`/api/v1/rounds/${fresh.id}/entries`, { bearer: live, json: { payload: clip(v), cost_usd: 0.001 } });
+            assert.strictEqual(e.status, 201, e.text);
+        }
+        const viewer = t.network.addUser('battler');
+        // The battle picks among waiting rounds at random; the newest (this one) comes first in its list.
+        const was = t.ctx.random;
+        t.ctx.random = () => 0;
+        const page = await t.get('/battle?kind=live.clip', { as: viewer });
+        t.ctx.random = was;
+        assert.strictEqual(page.status, 200, page.text);
+        const videos = page.text.match(/<video class="bt-clip"[^>]*src="https:\/\/media\.openvibe\.media\/p\/v[34]\.mp4/g) || [];
+        assert.strictEqual(videos.length, 2, 'both clips play');
+        assert.ok(!page.text.includes('The cat walks onto the keyboard'), 'no title: the vote is on the moment');
+        assert.ok(!page.text.includes('moment-picker'), 'blind: no policy before the vote');
+        assert.ok(!page.text.includes('/battle/card/'), 'no share card for a private battle');
+        assert.ok(page.text.includes('hls.min.js'), 'HLS clips can play');
+        const battleId = /data-battle="([^"]+)"/.exec(page.text)[1];
+        assert.strictEqual((await t.get(`/battle/card/${battleId}.svg`)).status, 404);
+        const csp = page.headers.get('content-security-policy') || '';
+        assert.match(csp, /media-src[^;]*https:\/\/openvibe\.media/);
+    });
+
     await t.close();
     done();
 })().catch((e) => { console.error(e); process.exit(1); });

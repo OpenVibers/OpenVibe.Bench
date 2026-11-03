@@ -12,7 +12,7 @@ const express = require('express');
 const { asyncRouter } = require('./router');
 const { sameOrigin } = require('./same-origin');
 const renderLib = require('../bench/render');
-const { kindById } = require('../kinds');
+const { kindById, isPrivateKind } = require('../kinds');
 const { esc, raw } = require('../render/html');
 const { send } = require('../render/layout');
 const { battleUseThis } = require('../views/usethis');
@@ -30,6 +30,21 @@ function paneOf(slot, letter) {
         + '<iframe class="bt-pane-frame" src="' + esc(url) + '" title="Output ' + esc(letter) + '"'
         + ' sandbox="' + esc(renderLib.WRAPPER_SANDBOX) + '" referrerpolicy="no-referrer" loading="lazy"></iframe>'
         + '</figure>';
+}
+
+/**
+ * A live.clip pane: the clip itself, blind. No title (the vote is on the moment), no source, no policy. An abstention
+ * says so; a clip whose link ran out says that instead of showing a broken player.
+ */
+function clipPaneOf(slot, letter) {
+    const p = slot.payload || {};
+    const body = p.abstained
+        ? '<div class="bt-clip-none"><b>No clip here</b><span>This picker found nothing worth clipping in this stretch.</span></div>'
+        : p.playback && p.playback.url
+            ? '<video class="bt-clip" controls preload="metadata" playsinline src="' + esc(p.playback.url) + '"></video>'
+            : '<div class="bt-clip-none"><b>This clip\'s link ran out</b><span>Vote on the other one, or come back for the next pair.</span></div>';
+    return '<figure class="bt-pane bt-pane-clip" data-slot="' + esc(letter) + '" data-entry-id="' + esc(slot.id) + '">'
+        + '<figcaption><span class="bt-pane-label">Clip ' + esc(letter) + '</span></figcaption>' + body + '</figure>';
 }
 
 function voteForm(battle) {
@@ -56,16 +71,38 @@ function battleView(battle) {
     return '<section class="bt-battle" data-battle="' + esc(battle.id) + '" data-kind="' + esc(battle.kind_id) + '">'
         + '<h1 class="bt-prompt" data-prompt="1">' + esc(battle.prompt) + '</h1>'
         + '<p class="bt-meta"><span class="br-chip">' + esc(kind ? kind.name : battle.kind_id) + '</span>'
-        + '<span class="bm-fine">Blind: you see two outputs, not their names.</span></p>'
-        + '<div class="bt-panes">' + paneOf(battle.a, 'A') + paneOf(battle.b, 'B') + '</div>'
+        + '<span class="bm-fine">' + (isPrivateKind(battle.kind_id) ? 'Blind: two clips of the same stream. Which one would you rather share?' : 'Blind: you see two outputs, not their names.') + '</span></p>'
+        + '<div class="bt-panes">' + (isPrivateKind(battle.kind_id) ? clipPaneOf(battle.a, 'A') + clipPaneOf(battle.b, 'B') : paneOf(battle.a, 'A') + paneOf(battle.b, 'B')) + '</div>'
         + voteForm(battle)
+        + (isPrivateKind(battle.kind_id) ? CLIP_PLAYER : '')
         + '</section>';
 }
+
+/**
+ * A clip whose link is an HLS playlist (Media's virtual clips) does not play in a desktop browser's own player: on
+ * that error, hls.js (pinned, from cdnjs) takes over that element. A cut clip (a file) plays as it is.
+ */
+const HLS_JS = 'https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.17/hls.min.js';
+const CLIP_PLAYER = '<script>(function(){var vs=[].slice.call(document.querySelectorAll("video.bt-clip"));var waiting=[];var loading=false;'
+    + 'function attach(v){if(window.Hls&&window.Hls.isSupported()){var h=new window.Hls();h.loadSource(v.getAttribute("src"));h.attachMedia(v);}}'
+    + 'function hls(v){if(window.Hls){attach(v);return}waiting.push(v);if(loading)return;loading=true;var s=document.createElement("script");s.src=' + JSON.stringify(HLS_JS) + ';'
+    + 's.onload=function(){waiting.splice(0).forEach(attach)};document.head.appendChild(s)}'
+    + 'vs.forEach(function(v){v.addEventListener("error",function(){if(v.dataset.hls)return;v.dataset.hls="1";hls(v)})})})();</script>';
 
 function revealView(battle, { baseUrl = '' } = {}) {
     const kind = kindById(battle.kind_id);
     const vote = battle.vote || {};
     const winner = vote.outcome === 'left' ? 'A' : vote.outcome === 'right' ? 'B' : vote.outcome === 'tie' ? 'Tie' : 'Both bad';
+    if (isPrivateKind(battle.kind_id)) {
+        // A clip pair opens on which picker made each clip (selector@version), never the recording or its playback.
+        const pol = (slot) => { const r = slot.route || {}; const p = (typeof r === 'string' ? JSON.parse(r) : r).policy || {}; return `${p.selector || '?'}@${p.version || '?'}`; };
+        return '<section class="bt-battle bt-revealed" data-battle="' + esc(battle.id) + '" data-kind="' + esc(battle.kind_id) + '">'
+            + '<h1 class="bt-prompt">Thank you: your vote counts</h1>'
+            + '<p class="bt-meta"><span class="br-chip">' + esc(kind ? kind.name : battle.kind_id) + '</span><span class="br-chip">' + esc('Your vote: ' + winner) + '</span></p>'
+            + '<dl class="bt-facts"><div><dt>Clip A</dt><dd>' + esc(pol(battle.a)) + '</dd></div><div><dt>Clip B</dt><dd>' + esc(pol(battle.b)) + '</dd></div></dl>'
+            + '<p class="bm-actions"><a class="bm-btn" href="/battle?kind=live.clip">Next pair</a></p>'
+            + '</section>';
+    }
     const fact = (slot, letter) => '<dl class="bt-facts" data-slot="' + esc(letter) + '">'
         + '<div><dt>Model</dt><dd>' + esc(slot.model) + '</dd></div>'
         + '<div><dt>Provider</dt><dd>' + esc(slot.provider) + '</dd></div>'
@@ -176,7 +213,7 @@ function createBattlePages(ctx) {
             config, viewer: viewerOf(req), path: req.originalUrl,
             title: 'Battle: two outputs, one prompt',
             description: 'Pick the better output, blind. The names open after the vote.',
-            headExtra: '<meta property="og:title" content="Vote: which is better?">'
+            headExtra: isPrivateKind(battle.kind_id) ? '' : '<meta property="og:title" content="Vote: which is better?">'
                 + '<meta property="og:description" content="Two outputs, one prompt, blind. Vote on OpenVibe.Bench.">'
                 + '<meta property="og:image" content="' + esc(config.baseUrl + '/battle/card/' + battle.id + '.svg') + '">'
                 + '<meta property="og:image:type" content="image/svg+xml">'
@@ -187,7 +224,8 @@ function createBattlePages(ctx) {
 
     r.get('/card/:id.svg', async (req, res) => {
         const battle = await battles.battleOf(String(req.params.id || ''));
-        if (!battle) return res.status(404).type('text/plain').send('No such card.');
+        // A private kind's battle has no public card.
+        if (!battle || isPrivateKind(battle.kind_id)) return res.status(404).type('text/plain').send('No such card.');
         res.set('Cache-Control', 'public, max-age=60');
         res.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src data: 'self'");
         return res.type('image/svg+xml').send(cardSvg(battle, config.baseUrl));
