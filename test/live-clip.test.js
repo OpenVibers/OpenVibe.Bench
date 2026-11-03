@@ -144,6 +144,21 @@ const { boot, check, done } = require('./helpers/boot');
         assert.match(csp, /media-src[^;]*https:\/\/openvibe\.media/);
     });
 
+    await check('a live.clip round spends no AI: it skips the daily round limits and counts against none', async () => {
+        const quota = await boot({ env: { BENCH_ROUNDS_PER_DAY: '1', BENCH_ROUNDS_DAILY: '1' } });
+        const liveSvc = quota.network.serviceToken({ sub: 'svc:live', audience: 'openvibe.bench', cap: ['bench.task.create', 'bench.round.create', 'bench.entry.create'] });
+        for (let i = 0; i < 4; i++) {
+            const task = await quota.get('/api/v1/kinds/live.clip/tasks', { bearer: liveSvc, json: { prompt: `stretch ${i}` } });
+            const rr = await quota.get(`/api/v1/tasks/${task.json().task.id}/rounds`, { bearer: liveSvc, json: {} });
+            assert.strictEqual(rr.status, 201, `round ${i}: ${rr.text}`);
+        }
+        const person = quota.network.addUser('quota-person');
+        const t2 = await quota.get('/api/v1/kinds/design.page/tasks', { as: person, json: { prompt: 'A page.' } });
+        const r2 = await quota.get(`/api/v1/tasks/${t2.json().task.id}/rounds`, { as: person, json: {} });
+        assert.strictEqual(r2.status, 201, 'a person\'s round still fits: the clip rounds took none of the site\'s budget');
+        await quota.close();
+    });
+
     await t.close();
     done();
 })().catch((e) => { console.error(e); process.exit(1); });

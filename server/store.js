@@ -248,8 +248,9 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         const start = dayStart();
         const perDay = config ? config.bench.roundsPerDay : 3;
         const daily = config ? config.bench.roundsDaily : 20;
-        const used = num(await db.value('SELECT COUNT(*)::int AS n FROM bench_rounds WHERE created_by = $1 AND created_at >= $2::timestamptz', [subject, start]));
-        const siteUsed = num(await db.value('SELECT COUNT(*)::int AS n FROM bench_rounds WHERE created_at >= $1::timestamptz', [start]));
+        // A private kind's rounds spend no AI (their submitter brings the entries): they count against nothing.
+        const used = num(await db.value('SELECT COUNT(*)::int AS n FROM bench_rounds WHERE created_by = $1 AND created_at >= $2::timestamptz AND NOT (kind_id = ANY($3::text[]))', [subject, start, PRIVATE_KIND_IDS]));
+        const siteUsed = num(await db.value('SELECT COUNT(*)::int AS n FROM bench_rounds WHERE created_at >= $1::timestamptz AND NOT (kind_id = ANY($2::text[]))', [start, PRIVATE_KIND_IDS]));
         return {
             used,
             remaining: Math.max(0, perDay - used),
@@ -267,8 +268,9 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         if (!kind) return refusal(422, 'bench.kind_not_found', 'The task\'s kind is gone.');
         const off = Array.isArray(offers) ? offers.slice(0, 3).map((o) => ({ provider: String(o.provider || ''), model: o.model == null ? null : String(o.model) })) : [];
         if (off.some((o) => !o.provider)) return refusal(422, 'bench.invalid_offers', 'Every offer needs a provider.');
-        // The daily rounds job spends Bench's own budget, not a person's quota, so it may skip the counts.
-        if (bypassQuota) {
+        // The daily rounds job spends Bench's own budget, not a person's quota, so it may skip the counts. A private
+        // kind's round (live.clip) spends no AI at all (its submitter brings the entries), so it skips them too.
+        if (bypassQuota || isPrivateKind(kind.id)) {
             const ownId = s.newId('brd');
             const own = await db.maybe(
                 `INSERT INTO bench_rounds (id, task_id, kind_id, offers, status, seed, params, pool_fallback, created_by, created_at)
@@ -286,10 +288,10 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         const row = await db.maybe(
             `INSERT INTO bench_rounds (id, task_id, kind_id, offers, status, seed, params, pool_fallback, created_by, created_at)
              SELECT $1, $2, $3, $4::jsonb, 'queued', $5, '{}'::jsonb, $6, $7, $8::timestamptz
-             WHERE (SELECT COUNT(*) FROM bench_rounds WHERE created_by = $7 AND created_at >= $9::timestamptz) < $10
-               AND (SELECT COUNT(*) FROM bench_rounds WHERE created_at >= $9::timestamptz) < $11
+             WHERE (SELECT COUNT(*) FROM bench_rounds WHERE created_by = $7 AND created_at >= $9::timestamptz AND NOT (kind_id = ANY($12::text[]))) < $10
+               AND (SELECT COUNT(*) FROM bench_rounds WHERE created_at >= $9::timestamptz AND NOT (kind_id = ANY($12::text[]))) < $11
              RETURNING *`,
-            [id, task.id, kind.id, JSON.stringify(off), Math.max(0, Number(seed) || 0), off.length < 3, subject, s.iso(), start, perDay, daily],
+            [id, task.id, kind.id, JSON.stringify(off), Math.max(0, Number(seed) || 0), off.length < 3, subject, s.iso(), start, perDay, daily, PRIVATE_KIND_IDS],
         );
         if (!row) {
             const c = await roundCounts(subject);
