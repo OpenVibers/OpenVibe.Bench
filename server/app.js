@@ -177,6 +177,22 @@ async function createApp(opts = {}) {
 
     // ── Static assets ───────────────────────────────────────
     app.use('/shared', require('openvibe-shared/serve').handler());
+    // Terms, Privacy and DMCA in this site's own words (openvibe-shared/legal, profile 'service'; 11-03: the footer's
+    // legal links answered 404 here). The facts must match the code: change both together.
+    const legal = require('openvibe-shared/legal');
+    app.get(legal.PATHS, legal.handler({
+        "host": "bench.openvibe.services",
+        "name": "Bench.OpenVibe.Services",
+        "id": "bench",
+        "service": "bench",
+        "profile": "service",
+        "what": "The shared AI benchmark and comparison engine: kinds, pinned rounds, blind judgements, elo/pareto/cost boards, an open dataset per kind and private evals.",
+        "makes": [
+                "the evaluations you run and their results",
+                "your judgements in blind comparisons, which count toward the public boards"
+        ],
+        "ai": true
+    }));
     app.use(express.static(PUBLIC_DIR, {
         index: false, redirect: false,
         setHeaders(res, filePath) {
