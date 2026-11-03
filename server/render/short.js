@@ -5,12 +5,11 @@
  *   foldBlock()  a part a reader rarely needs: closed on a phone, where the title row opens it, and open where there
  *                is room, where it looks like the section it replaces. A checkbox and a label, no script: the part
  *                stays in the page for the crawlers, and a browser without CSS shows it as it was.
- *   pickBlock()  several blocks of the same kind, one at a time on a phone, picked with a row of chips. Radio inputs
- *                and :has(), no script: every block stays in the page, and a wider screen (or a browser without
- *                :has()) shows them all and no chips.
+ *   pickBlock()  several blocks of the same kind; on a phone every pane is shown, stacked, each with its own heading,
+ *                and the chips are a row of links that jump to a pane (the owner's rule, 2026-10-31: never hide
+ *                content to shorten). A wider screen shows the panes as before, with no chips.
  *
- * The CSS for both lives in the site's own stylesheet; the rule that shows the picked block is written for the page,
- * because there is one per block.
+ * The CSS for both lives in the site's own stylesheet.
  */
 const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
@@ -46,28 +45,19 @@ function foldBlock({ id, head, html, bare = false }) {
 }
 
 /**
- * A pick block. The panes are the page's own blocks; each one keeps its heading on a wide screen, and on a phone the
- * heading gives way to the chip that names it.
+ * A pick block. The panes are the page's own blocks; each one keeps its heading on a wide screen, and on a phone every
+ * pane is shown, stacked, each with its own heading, with a row of link chips that jump to a pane.
  *
- *   pickBlock({ key, label, head, panes, checked })   panes: [{ id, label, html }]; checked: the pane the first
- *                chip picks (the first one by default)
+ *   pickBlock({ key, label, head, panes })   panes: [{ id, label, html }]
  */
-function pickBlock({ key, label, head = '', panes, checked = '' }) {
+function pickBlock({ key, label, head = '', panes }) {
     if (!panes.length) return '';
-    const first = panes.find((p) => p.id === checked) ? checked : panes[0].id;
-    const chips = panes.map((p) => `<input type="radio" name="pick-${esc(key)}" id="pk-${esc(key)}-${esc(p.id)}" value="${esc(p.id)}"${p.id === first ? ' checked' : ''}><label for="pk-${esc(key)}-${esc(p.id)}">${esc(p.label)}</label>`).join('');
+    const chips = panes.map((p) => {
+        const paneId = `pp-${esc(key)}-${esc(p.id)}`;
+        return `<a class="pick-chip" href="#${paneId}">${esc(p.label)}</a>`;
+    }).join('');
     const body = panes.map((p) => `<div class="pick-pane" id="pp-${esc(key)}-${esc(p.id)}">${str(p.html)}</div>`).join('');
-    return `<div class="pick" id="pick-${esc(key)}"><div class="pick-bar"><div class="pick-head"><h2>${esc(head || label)}</h2></div><div class="pick-row" role="radiogroup" aria-label="${esc(label)}">${chips}</div></div><div class="pick-body">${body}</div></div>`;
+    return `<div class="pick" id="pick-${esc(key)}"><div class="pick-bar"><div class="pick-head"><h2>${esc(head || label)}</h2></div><nav class="pick-row" aria-label="${esc(label)}">${chips}</nav></div><div class="pick-body">${body}</div></div>`;
 }
 
-/** The rule that shows the picked block of a pick block: one per block, so the CSS is written for the page. */
-function pickRule(key, id) {
-    return `.pick:has(#pk-${key}-${id}:checked) #pp-${key}-${id}{display:block}`;
-}
-
-/** The rules for every block of a pick block, in the order they appear. */
-function pickRules(key, ids) {
-    return ids.map((id) => pickRule(key, id)).join('');
-}
-
-module.exports = { foldBlock, pickBlock, pickRule, pickRules };
+module.exports = { foldBlock, pickBlock };
