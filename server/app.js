@@ -105,6 +105,27 @@ async function createApp(opts = {}) {
     };
 
     const app = express();
+    // GET /openapi.json (SEO-3): this service's public API as OpenAPI 3.1, generated from the contracts
+    // (openvibe-contracts); the operations they mark internal-only are left out.
+    app.get('/openapi.json', (_req, res) => {
+        const doc = require('openvibe-contracts').openapi.document('bench');
+        if (!doc) return res.status(404).type('text/plain').send('No API document.');
+        const METHODS = new Set(['get', 'put', 'post', 'delete', 'patch', 'head', 'options']);
+        const paths = {};
+        for (const [p, item] of Object.entries(doc.paths || {})) {
+            const kept = {};
+            for (const [k, op] of Object.entries(item || {})) {
+                if (!METHODS.has(k)) { kept[k] = op; continue; }
+                const vis = [].concat((op && op['x-openvibe-visibility']) || []);
+                if (vis.length && vis.every((v) => v === 'internal')) continue;
+                kept[k] = op;
+            }
+            if (Object.keys(kept).some((k) => METHODS.has(k))) paths[p] = kept;
+        }
+        res.set('Cache-Control', 'public, max-age=3600').set('Access-Control-Allow-Origin', '*').json({ ...doc, paths });
+    });
+    // /.well-known/agent.json (openvibe-shared/agent-layer, SEO-2): what this site serves, for agents.
+    require('openvibe-shared/agent-layer').mount(app, { descriptor: require('./agent-descriptor') });
     app.disable('x-powered-by');
     app.set('trust proxy', config.trustProxy);
     const release = require('openvibe-shared/release').createRelease({ service: 'bench', root: path.join(__dirname, '..') });

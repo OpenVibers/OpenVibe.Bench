@@ -62,10 +62,11 @@ function createDiscoveryRoutes(ctx) {
     r.get('/llms-full.txt', (_req, res) => {
         res.type('text/plain').set('Cache-Control', TEXT).send(seo.llmsFull({
             site: SITE_NAME,
-            summary: 'The Bench home and its API docs.',
+            summary: 'The Bench home and its API docs, in full.',
             base: site,
             maxBytes: 256 * 1024,
-            sections: [{ title: 'Pages', pages: PAGES.map((p) => ({ url: p.path, title: p.title, text: p.text })) }],
+            // The API page in full (SEO-33: it was one line), from the same view /docs renders.
+            sections: [{ title: 'Pages', pages: PAGES.map((p) => (p.path === '/docs' ? { url: p.path, title: p.title, html: require('../views').docs() } : { url: p.path, title: p.title, text: p.text })) }],
         }));
     });
 
