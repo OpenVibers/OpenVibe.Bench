@@ -16,7 +16,8 @@
  */
 
 const crypto = require('crypto');
-const { SHOWCASE_KIND_IDS } = require('../kinds');
+const { SHOWCASE_KIND_IDS, isPrivateKind } = require('../kinds');
+const clipLib = require('./clip');
 
 const num = (v, d = 0) => (v == null || Number.isNaN(Number(v)) ? d : Number(v));
 
@@ -120,11 +121,13 @@ function createBattles(ctx) {
             `INSERT INTO bench_battle_seen (id, subject, pair_key, round_id, kind_id, a_entry, b_entry, net_hash, at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz)`,
             [id, subject, key, row.id, row.kind_id, a.id, b.id, netHash, s.iso()]);
+        // A private kind's pair (live.clip) carries the clips themselves: a voter watches them, while their links last.
+        const clip = (e) => (isPrivateKind(row.kind_id) ? { payload: clipLib.forViewer(typeof e.payload === 'string' ? JSON.parse(e.payload) : e.payload, { now: s.now(), playback: true }) } : {});
         return {
             id, round_id: row.id, kind_id: row.kind_id, prompt: row.prompt,
             question: questionFor(row.kind_id),
-            a: { id: a.id, provider: a.provider, model: a.model, cost_usd: num(a.cost_usd), ms: num(a.ms) },
-            b: { id: b.id, provider: b.provider, model: b.model, cost_usd: num(b.cost_usd), ms: num(b.ms) },
+            a: { id: a.id, provider: a.provider, model: a.model, cost_usd: num(a.cost_usd), ms: num(a.ms), ...clip(a) },
+            b: { id: b.id, provider: b.provider, model: b.model, cost_usd: num(b.cost_usd), ms: num(b.ms), ...clip(b) },
         };
     }
 

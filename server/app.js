@@ -132,11 +132,14 @@ async function createApp(opts = {}) {
         contentSecurityPolicy: {
             directives: {
                 defaultSrc: ["'self'"],
-                scriptSrc: ["'self'", "'unsafe-inline'", 'https://openvibe.network', 'https://static.cloudflareinsights.com'],
+                // cdnjs: hls.js for a live.clip battle's HLS clips (server/http/battle.js), loaded only when a clip needs it.
+                scriptSrc: ["'self'", "'unsafe-inline'", 'https://openvibe.network', 'https://static.cloudflareinsights.com', 'https://cdnjs.cloudflare.com'],
                 styleSrc: ["'self'", "'unsafe-inline'", 'https://openvibe.network', 'https://fonts.googleapis.com', 'https://cdnjs.cloudflare.com'],
                 fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com', 'https://cdnjs.cloudflare.com'],
                 imgSrc: ["'self'", 'data:', 'https://openvibe.network', 'https://openvibe.media'],
-                connectSrc: ["'self'", 'https://openvibe.network', 'https://cloudflareinsights.com', 'https://openvibe.events'],
+                connectSrc: ["'self'", 'https://openvibe.network', 'https://cloudflareinsights.com', 'https://openvibe.events', 'https://openvibe.media'],
+                // A live.clip battle plays its two clips from OpenVibe.Media (signed links; HLS through blob: sources).
+                mediaSrc: ["'self'", 'https://openvibe.media', 'blob:'],
                 frameSrc: ["'self'", 'https://openvibe.network', require('./bench/render').RENDER_ORIGIN],
                 frameAncestors: ["'none'"],
                 objectSrc: ["'none'"],
