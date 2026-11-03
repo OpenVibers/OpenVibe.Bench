@@ -126,7 +126,11 @@ const { boot, check, done } = require('./helpers/boot');
             assert.strictEqual(e.status, 201, e.text);
         }
         const viewer = t.network.addUser('battler');
+        // The battle picks among waiting rounds at random; the newest (this one) comes first in its list.
+        const was = t.ctx.random;
+        t.ctx.random = () => 0;
         const page = await t.get('/battle?kind=live.clip', { as: viewer });
+        t.ctx.random = was;
         assert.strictEqual(page.status, 200, page.text);
         const videos = page.text.match(/<video class="bt-clip"[^>]*src="https:\/\/media\.openvibe\.media\/p\/v[34]\.mp4/g) || [];
         assert.strictEqual(videos.length, 2, 'both clips play');
