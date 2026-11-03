@@ -256,7 +256,11 @@ async function createApp(opts = {}) {
     app.use('/battle', createBattlePages(ctx));
     app.use('/ratings', createRatingsPages(ctx));
     app.use(require('./http/imports').createImportRoutes(ctx));
-    app.use(createPageRoutes(ctx));
+    const pageRoutes = createPageRoutes(ctx);
+    // The Markdown twins of the public pages, and the head link and Link: header that name them (SEO-1,
+    // server/agent-twins.js): a twin is the page rendered signed out.
+    require('./agent-twins').mountTwins(app, { router: pageRoutes, descriptor: require('./agent-descriptor'), baseUrl: ctx.config.baseUrl });
+    app.use(pageRoutes);
     app.use((req, res) => send(res, 404, {
         viewer: req.viewer, config, path: req.originalUrl, title: 'Not found',
         body: raw(require('./views').notFound()),
