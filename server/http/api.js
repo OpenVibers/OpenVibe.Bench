@@ -181,6 +181,8 @@ function createApi(ctx) {
                 error: b.error,
                 uiCheck: b.ui_check,
                 runId: b.run_id,
+                // A live.clip names the recording it was cut from; the submitter's token says which ones it may.
+                claims: (req.principal && req.principal.claims) || null,
             });
             res.set('Location', `/api/v1/rounds/${String(req.params.id)}`);
             return res.status(201).json({ entry });

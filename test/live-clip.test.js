@@ -13,8 +13,11 @@ const { boot, check, done } = require('./helpers/boot');
     const t = await boot({ env: { BENCH_ROUNDS_PER_DAY: '100', BENCH_ROUNDS_DAILY: '1000' } });
     const voter = t.network.addUser('voter');
     const voter2 = t.network.addUser('voter2');
-    const live = t.network.serviceToken({ sub: 'svc:live', audience: 'openvibe.bench', cap: ['bench.task.create', 'bench.round.create', 'bench.entry.create'] });
-    const other = t.network.serviceToken({ sub: 'svc:room', audience: 'openvibe.bench', cap: ['bench.task.create', 'bench.round.create', 'bench.entry.create'] });
+    const CAPS = ['bench.task.create', 'bench.round.create', 'bench.entry.create'];
+    // Live's token is granted the recordings it may cut clips from (the `ns` claim): the namespace of a recording
+    // is `rec:<recording_id>`, and a wildcard covers the recordings it names.
+    const live = t.network.serviceToken({ sub: 'svc:live', audience: 'openvibe.bench', cap: CAPS, ns: ['rec:vod_*'] });
+    const other = t.network.serviceToken({ sub: 'svc:room', audience: 'openvibe.bench', cap: CAPS, ns: ['rec:vod_*'] });
     const soon = () => new Date(Date.now() + 3600_000).toISOString();
     const clip = (version, extra = {}) => ({
         source: { recording_id: 'vod_5021', start_ms: 60_000, end_ms: 90_000, language: 'ja', genre: 'irl' },
@@ -64,6 +67,30 @@ const { boot, check, done } = require('./helpers/boot');
         const row = await t.ctx.s.db.one('SELECT route, model FROM bench_entries WHERE id = $1', [a.json().entry.id]);
         assert.deepStrictEqual(row.route.policy, { selector: 'moment-picker', version: 'v1', models: ['qwen3-vl-4b'] });
         assert.strictEqual(row.model, 'qwen3-vl-4b');
+    });
+
+    await check('a submitter may only submit for a recording its token is granted', async () => {
+        // Live's token holds `rec:vod_*`: the recordings whose id starts with `vod_`. A clip of another recording
+        // (one this token was never granted) is refused, and so is a token that names no recording at all.
+        const r = await newRound();
+        const foreign = await t.get(`/api/v1/rounds/${r.id}/entries`, { bearer: live, json: { payload: clip('v1', { source: { recording_id: 'clip_99', start_ms: 60_000, end_ms: 90_000 } }) } });
+        assert.strictEqual(foreign.status, 403, foreign.text);
+        assert.strictEqual(foreign.json().code, 'bench.clip_source_denied');
+        const none = t.network.serviceToken({ sub: 'svc:live', audience: 'openvibe.bench', cap: CAPS, ns: [] });
+        const noNs = await t.get(`/api/v1/rounds/${r.id}/entries`, { bearer: none, json: { payload: clip('v1') } });
+        assert.strictEqual(noNs.status, 403, 'a token granted no recording is authorised for none');
+        assert.strictEqual(noNs.json().code, 'bench.clip_source_denied');
+        const one = t.network.serviceToken({ sub: 'svc:live', audience: 'openvibe.bench', cap: CAPS, ns: ['rec:vod_5021'] });
+        const exact = await t.get(`/api/v1/rounds/${r.id}/entries`, { bearer: one, json: { payload: clip('v1') } });
+        assert.strictEqual(exact.status, 201, exact.text);
+        const otherRec = await t.get(`/api/v1/rounds/${r.id}/entries`, { bearer: one, json: { payload: clip('v1', { source: { recording_id: 'vod_5022', start_ms: 60_000, end_ms: 90_000 } }) } });
+        assert.strictEqual(otherRec.status, 403, 'granted one recording, not another');
+        // An abstention names its recording too, so it is refused the same way.
+        const abstain = await t.get(`/api/v1/rounds/${r.id}/entries`, { bearer: one, json: { payload: { source: { recording_id: 'vod_5022', start_ms: 0, end_ms: 1000 }, policy: { selector: 'moment-picker', version: 'v1', models: [] }, abstained: true, reason: 'Nothing worth clipping here.' } } });
+        assert.strictEqual(abstain.status, 403, 'an abstention of another recording is refused as well');
+        // The refused entries left nothing behind.
+        const rows = await t.ctx.s.db.many('SELECT id FROM bench_entries WHERE round_id = $1', [r.id]);
+        assert.strictEqual(rows.length, 1, 'only the authorised entry was stored');
     });
 
     await check('the playback is for a voter only: not in a round read, not after it expires', async () => {
@@ -146,7 +173,7 @@ const { boot, check, done } = require('./helpers/boot');
 
     await check('a live.clip round spends no AI: it skips the daily round limits and counts against none', async () => {
         const quota = await boot({ env: { BENCH_ROUNDS_PER_DAY: '1', BENCH_ROUNDS_DAILY: '1' } });
-        const liveSvc = quota.network.serviceToken({ sub: 'svc:live', audience: 'openvibe.bench', cap: ['bench.task.create', 'bench.round.create', 'bench.entry.create'] });
+        const liveSvc = quota.network.serviceToken({ sub: 'svc:live', audience: 'openvibe.bench', cap: CAPS, ns: ['rec:vod_*'] });
         for (let i = 0; i < 4; i++) {
             const task = await quota.get('/api/v1/kinds/live.clip/tasks', { bearer: liveSvc, json: { prompt: `stretch ${i}` } });
             const rr = await quota.get(`/api/v1/tasks/${task.json().task.id}/rounds`, { bearer: liveSvc, json: {} });
