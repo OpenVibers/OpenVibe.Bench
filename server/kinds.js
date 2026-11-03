@@ -44,8 +44,20 @@ const KINDS = Object.freeze([
     { id: 'design.interface', room: 'design', entry: 'component_set', judge: 'human_pairwise', name: 'Component systems arena', metrics: ['elo', 'cost_usd', 'ms'], schema: { renderer: 'script', limit_ms: 20000, judges: ['human_pairwise', 'rubric'], entry: 'component_set', payload: { html: 'string' } } },
 ]);
 
-const byId = new Map(KINDS.map((k) => [k.id, k]));
+// Private kinds: their rounds compare things that are not public (a channel's held-out recordings), so they never
+// appear in the public kind list, the boards, the open datasets or the vote dump; their submitter reads its own results.
+// live.clip (item 151, C19): OpenVibe.Live's AI clip picks, blind against another policy's (server/bench/clip.js).
+const PRIVATE_KINDS = Object.freeze([
+    { id: 'live.clip', room: 'live', entry: 'video_clip', judge: 'human_pairwise', name: 'AI clip picks', metrics: ['elo', 'cost_usd', 'accept_rate'], private: true, submitter: 'service:live',
+        schema: { renderer: 'video', judges: ['human_pairwise'], entry: 'video_clip',
+            payload: { source: 'object', playback: 'object', policy: 'object', title: 'string', abstained: 'boolean', reason: 'string' },
+            rubric: require('./bench/clip').RUBRIC } },
+]);
+const PRIVATE_KIND_IDS = Object.freeze(PRIVATE_KINDS.map((k) => k.id));
+const ALL_KINDS = Object.freeze(KINDS.concat(PRIVATE_KINDS));
+
+const byId = new Map(ALL_KINDS.map((k) => [k.id, k]));
 
 const SHOWCASE_KIND_IDS = Object.freeze(KINDS.filter((k) => k.schema && k.schema.renderer).map((k) => k.id));
 
-module.exports = { KINDS, JUDGES, WINNERS, SHOWCASE_KIND_IDS, kindById: (id) => byId.get(id) || null };
+module.exports = { KINDS, PRIVATE_KINDS, PRIVATE_KIND_IDS, ALL_KINDS, JUDGES, WINNERS, SHOWCASE_KIND_IDS, kindById: (id) => byId.get(id) || null, isPrivateKind: (id) => PRIVATE_KIND_IDS.includes(id) };

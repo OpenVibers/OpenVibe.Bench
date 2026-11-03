@@ -11,7 +11,7 @@ const { http } = require('openvibe-contracts');
 const { asyncRouter } = require('./router');
 const { sameOrigin } = require('./same-origin');
 const renderLib = require('../bench/render');
-const { kindById, SHOWCASE_KIND_IDS } = require('../kinds');
+const { kindById, SHOWCASE_KIND_IDS, isPrivateKind } = require('../kinds');
 const { esc, raw } = require('../render/html');
 const { send } = require('../render/layout');
 
@@ -51,7 +51,8 @@ async function voteCount(db, roundId) {
 async function loadPairs(ctx, opts) {
     const db = ctx.s.db;
     const kind = opts && opts.kind ? String(opts.kind) : 'all';
-    const kinds = kind && kind !== 'all' ? [kind] : SHOWCASE_KIND_IDS;
+    // A private kind (live.clip) is never in the gallery, even when asked for by name.
+    const kinds = kind && kind !== 'all' ? (isPrivateKind(kind) ? [] : [kind]) : SHOWCASE_KIND_IDS;
     const limit = Math.min(100, Math.max(1, num(opts && opts.limit, 24)));
     const rows = await db.many(
         "SELECT r.id, r.kind_id, r.created_at, r.created_by, t.prompt, t.task_class FROM bench_rounds r JOIN bench_tasks t ON t.id = r.task_id WHERE r.status = 'finished' AND r.kind_id = ANY($1::text[]) ORDER BY r.created_at DESC, r.id LIMIT $2",

@@ -27,7 +27,7 @@ const express = require('express');
 const { http, ids } = require('openvibe-contracts');
 const { asyncRouter } = require('./router');
 const { sameOrigin } = require('./same-origin');
-const { kindById } = require('../kinds');
+const { kindById, isPrivateKind } = require('../kinds');
 const { BenchError } = require('../store');
 const boardLib = require('../rating/board');
 
@@ -92,8 +92,26 @@ function createApi(ctx) {
     });
 
     // ── Tasks ───────────────────────────────────────────────
+    // A private kind (live.clip) takes tasks, rounds and entries from its submitter only (kinds.js `submitter`).
+    const submitterOnly = (req, res, kindId) => {
+        if (!isPrivateKind(kindId)) return true;
+        const want = (kindById(kindId) || {}).submitter;
+        if (req.principal && req.principal.requester === want) return true;
+        problem(res, 403, 'bench.private_kind', `Only ${want} submits to ${kindId}.`);
+        return false;
+    };
+
+    r.get('/kinds/:kindId/policies', principal.requireCapability('bench.entry.create'), async (req, res) => {
+        const kindId = String(req.params.kindId || '');
+        if (kindId !== 'live.clip') return problem(res, 404, 'bench.kind_not_found', 'Policy results are kept for live.clip.');
+        if (!submitterOnly(req, res, kindId)) return undefined;
+        res.set('Cache-Control', 'private, no-store');
+        return res.json({ kind_id: kindId, policies: await bench.clipPolicies() });
+    });
+
     r.post('/kinds/:kindId/tasks', actor('bench.task.create'), async (req, res) => {
         const b = req.body && typeof req.body === 'object' ? req.body : {};
+        if (!submitterOnly(req, res, String(req.params.kindId || ''))) return undefined;
         const owner = creatorOf(req);
         const out = await bench.createTask({
             kindId: String(req.params.kindId || ''),
@@ -117,6 +135,8 @@ function createApi(ctx) {
     // ── Rounds ──────────────────────────────────────────────
     r.post('/tasks/:id/rounds', actor('bench.round.create'), async (req, res) => {
         const b = req.body && typeof req.body === 'object' ? req.body : {};
+        const task = await bench.getTask(String(req.params.id || ''));
+        if (task && !submitterOnly(req, res, task.kind_id)) return undefined;
         const owner = creatorOf(req);
         try {
             const out = await bench.createRound({
@@ -135,7 +155,11 @@ function createApi(ctx) {
         try {
             const round = await bench.getRound(String(req.params.id || ''), { viewerSubject: subjectOf(req) });
             if (!round) return problem(res, 404, 'bench.round_not_found', 'No such round.');
-            res.set('Cache-Control', round.blind ? 'private, no-store' : 'public, max-age=60');
+            // A private kind's round is for its submitter and for the people who voted on it.
+            if (isPrivateKind(round.kind_id) && round.blind && !(req.principal && req.principal.requester === (kindById(round.kind_id) || {}).submitter)) {
+                return problem(res, 404, 'bench.round_not_found', 'No such round.');
+            }
+            res.set('Cache-Control', round.blind || isPrivateKind(round.kind_id) ? 'private, no-store' : 'public, max-age=60');
             return res.json({ round });
         } catch (err) { return failed(res, err); }
     });
@@ -143,6 +167,8 @@ function createApi(ctx) {
     r.post('/rounds/:id/entries', principal.requireCapability('bench.entry.create'), async (req, res) => {
         const b = req.body && typeof req.body === 'object' ? req.body : {};
         try {
+            const round = await bench.getRound(String(req.params.id || ''), { viewerSubject: null });
+            if (round && !submitterOnly(req, res, round.kind_id)) return undefined;
             const entry = await bench.addEntry({
                 roundId: String(req.params.id || ''),
                 provider: b.provider,
@@ -185,8 +211,8 @@ function createApi(ctx) {
                 return problem(res, 401, 'bench.sign_in_required', 'Sign in at bench.openvibe.services, or send a service token that may relay anonymous votes.');
             }
             const kindRow = kindById(kind);
-            if (!kindRow || kindRow.judge !== 'human_pairwise') {
-                return problem(res, 403, 'bench.anon_kind_not_allowed', 'Only pairwise kinds can be judged without signing in.');
+            if (!kindRow || kindRow.judge !== 'human_pairwise' || kindRow.private) {
+                return problem(res, 403, 'bench.anon_kind_not_allowed', 'Only public pairwise kinds can be judged without signing in.');
             }
             if (anon.minted) ctx.anon.setCookie(res, anon.opaque);
             const pair = await bench.nextJudgement({
@@ -217,8 +243,8 @@ function createApi(ctx) {
                 const round = await bench.getRound(roundId, { viewerSubject: null });
                 if (!round) return problem(res, 404, 'bench.round_not_found', 'No such round.');
                 const row = kindById(round.kind_id);
-                if (!row || row.judge !== 'human_pairwise') {
-                    return problem(res, 403, 'bench.anon_kind_not_allowed', 'Only pairwise kinds can be judged without signing in.');
+                if (!row || row.judge !== 'human_pairwise' || row.private) {
+                    return problem(res, 403, 'bench.anon_kind_not_allowed', 'Only public pairwise kinds can be judged without signing in.');
                 }
                 const out = await bench.castJudgement({
                     roundId, kindId: round.kind_id, judge: 'human_pairwise',

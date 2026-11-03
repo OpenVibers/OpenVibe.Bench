@@ -1,4 +1,5 @@
 'use strict';
+const { PRIVATE_KIND_IDS } = require('../kinds');
 
 /**
  * Bench's generation workers. A round (or private eval run) is created as `queued`; this loop claims it, asks
@@ -15,7 +16,8 @@ function createBenchJobs({ s, bench, ai, config, log = console }) {
 
     async function claimRound() {
         return await s.tx(async () => {
-            const r = await s.db.maybe("SELECT * FROM bench_rounds WHERE status = 'queued' ORDER BY created_at, id LIMIT 1 FOR UPDATE");
+            // A private kind's round (live.clip) is filled by its submitter, never by Bench's AI.
+            const r = await s.db.maybe("SELECT * FROM bench_rounds WHERE status = 'queued' AND NOT (kind_id = ANY($1::text[])) ORDER BY created_at, id LIMIT 1 FOR UPDATE", [PRIVATE_KIND_IDS]);
             if (!r) return null;
             await s.db.exec("UPDATE bench_rounds SET status = 'running' WHERE id = $1", [r.id]);
             return { ...r, status: 'running' };

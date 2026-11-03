@@ -10,7 +10,7 @@
 
 const { frontier } = require('./frontier');
 const { parsePick } = require('./parser');
-const { KINDS, kindById, SHOWCASE_KIND_IDS } = require('../kinds');
+const { KINDS, kindById, SHOWCASE_KIND_IDS, PRIVATE_KIND_IDS } = require('../kinds');
 const renderLib = require('../bench/render');
 const { screenshotOf } = require('../http/gallery');
 
@@ -52,7 +52,7 @@ async function busiestKind(ctx) {
     const rows = await ctx.s.db.many(
         `SELECT r.kind_id AS id, COUNT(e.id)::int AS n
            FROM bench_entries e JOIN bench_rounds r ON r.id = e.round_id
-          WHERE e.error IS NULL GROUP BY r.kind_id ORDER BY n DESC, r.kind_id LIMIT 1`);
+          WHERE e.error IS NULL AND NOT (r.kind_id = ANY($1::text[])) GROUP BY r.kind_id ORDER BY n DESC, r.kind_id LIMIT 1`, [PRIVATE_KIND_IDS]);
     if (rows && rows[0] && rows[0].id) return rows[0].id;
     return SHOWCASE_KIND_IDS[0] || 'games.play';
 }
