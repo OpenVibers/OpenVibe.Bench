@@ -10,6 +10,7 @@ const crypto = require('crypto');
 const { ids } = require('openvibe-contracts');
 const { KINDS, ALL_KINDS, PRIVATE_KIND_IDS, JUDGES, WINNERS, kindById, isPrivateKind } = require('./kinds');
 const clipLib = require('./bench/clip');
+const clipSource = require('./bench/clip-source');
 const ratingLib = require('./rating');
 const styleLib = require('./rating/style');
 
@@ -317,7 +318,7 @@ function createStore(s, { log = console, random = Math.random, config = null } =
     }
 
     /** Insert an entry into a round; moves a room-submitted round to ready when it has two usable entries. */
-    async function addEntry({ roundId, provider, model, route, payload, costUsd = 0, ms = 0, tokens = 0, error = null, uiCheck = null, runId = null }) {
+    async function addEntry({ roundId, provider, model, route, payload, costUsd = 0, ms = 0, tokens = 0, error = null, uiCheck = null, runId = null, claims = null }) {
         return await s.tx(async () => {
             const r = await db.maybe('SELECT * FROM bench_rounds WHERE id = $1 FOR UPDATE', [String(roundId || '')]);
             if (!r) throw new BenchError(404, 'bench.round_not_found', 'No such Bench round.');
@@ -326,6 +327,10 @@ function createStore(s, { log = console, random = Math.random, config = null } =
                 const v = clipLib.validateEntry(payload, { now: s.now() });
                 if (!v.ok) throw new BenchError(422, 'bench.invalid_clip', v.message);
                 payload = v.payload;
+                // The submitter must be authorised for the recording the clip was cut from: a token that may submit
+                // for one recording may not name another. The check fails closed (no grant, no recording).
+                const src = clipSource.sourceAllowed(claims, payload.source.recording_id);
+                if (!src.allowed) throw new BenchError(403, src.code, src.reason);
                 route = { policy: v.payload.policy };
                 model = model || v.payload.policy.models[0] || `${v.payload.policy.selector}@${v.payload.policy.version}`;
                 provider = provider || 'live';

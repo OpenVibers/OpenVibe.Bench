@@ -95,6 +95,48 @@ down in `bench_daily_rounds`.
 | What the day's rounds may cost | `BENCH_DAILY_BUDGET_USD` | 1.00 |
 | What one round is assumed to cost | `BENCH_DAILY_ROUND_ESTIMATE_USD` | 0.05 |
 
+## live.clip: OpenVibe.Live's AI clip picks
+
+`live.clip` is a **private** kind: Live submits the clips its picker made (or chose not to make) and Bench compares
+them blind, against another policy's pick for the same recording. Bench never makes clips itself, and the kind never
+appears in the public kind list, a board, the gallery, the open dataset or the vote dump.
+
+Only Live's service token submits to it (`service:live`), and only for the recordings that token is granted.
+
+| Route | Who | What |
+|---|---|---|
+| `POST /api/v1/kinds/live.clip/tasks` | Live's service token | A task for one recording. It is never public. |
+| `POST /api/v1/tasks/:id/rounds` | Live's service token | The round. It spends no AI and takes none of the site's daily round budget. |
+| `POST /api/v1/rounds/:id/entries` | Live's service token | One clip, or one abstention. |
+| `GET /api/v1/kinds/live.clip/policies` | Live's service token | What each picker did: entries, abstentions, cost, wins, ties, losses, both-bad votes and the accept rate. |
+
+An entry's payload is typed, and only the typed fields are kept:
+
+```json
+{
+  "source":   { "recording_id": "vod_5021", "start_ms": 60000, "end_ms": 90000, "language": "ja", "genre": "irl" },
+  "playback": { "url": "https://openvibe.media/c/1234?exp=…&sig=…", "expires_at": "2026-11-03T12:00:00.000Z" },
+  "policy":   { "selector": "auto-clip", "version": "2026-11-02", "models": ["qwen3-vl-4b"] },
+  "title":    "The cat walks onto the keyboard",
+  "cost_usd": 0.002
+}
+```
+
+`end_ms` must be after `start_ms`, the clip 5 to 180 seconds long, `playback.url` an `https` address and
+`playback.expires_at` a time still to come. The `policy` is pinned on the entry when it is stored and is never
+rewritten. An **abstention** is a valid entry — the picker saw nothing worth clipping — and carries no `playback`, a
+`reason` instead, and `abstained: true`.
+
+**Which recordings a service may submit for.** The grant is the service token's `ns` claim, the same namespace list
+OpenVibe.Media reads: the namespace of a recording is `rec:<recording_id>`. A token holding `ns: ["rec:vod_*"]` may
+submit for the recordings whose id starts with `vod_`; `rec:*` (or `*`) is every recording. A token that names no
+namespace is authorised for **none**: the check fails closed, so an entry for a recording the submitter was never
+granted is refused with `bench.clip_source_denied` and nothing is stored.
+
+**The playback is for a voter only.** It is never in a round read, only in the pair a voter is given
+(`GET /api/v1/judgements/next?kind=live.clip`) and on the battle page, and never once `expires_at` has passed: an
+expired clip is shown as expired and its link is not served.
+
 ## The older API
 
 Bench also serves kinds, tasks, rounds, entries, judgements, the boards, the models, the open dataset and the private
