@@ -6,6 +6,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const { boot, check, done } = require('./helpers/boot');
+const { pickBlock } = require('../server/render/short');
 
 (async () => {
     const t = await boot();
@@ -38,6 +39,18 @@ const { boot, check, done } = require('./helpers/boot');
         assert.match(fold, /\.fold-body \{ display: block; \}/, 'the body is open where there is room');
         assert.match(fold, /\.fold-bare > \.fold-h \{ display: none; \}/, 'a part with no heading of its own looks as it did');
         assert.ok(!/#[0-9a-f]{3,6}\b/i.test(fold.replace(/#[0-9a-f]{3,6}\b/gi, '')), 'no new colours in the fold rules');
+    });
+
+    await check('pickBlock makes link chips, not radios, and every chip points at a pane in the block', () => {
+        const html = pickBlock({ key: 'k', label: 'Pick me', head: 'Headline', panes: [{ id: 'a', label: 'Alpha', html: '<p>one</p>' }, { id: 'b', label: 'Beta', html: '<p>two</p>' }] });
+        assert.ok(!/type="radio"/.test(html), 'no radio input');
+        assert.ok(!/role="radiogroup"/.test(html), 'the row is not a radiogroup');
+        const chips = [...html.matchAll(/<a class="pick-chip" href="#(pp-k-[ab])">([^<]+)<\/a>/g)];
+        assert.deepStrictEqual(chips.map((m) => [m[1], m[2]]), [['pp-k-a', 'Alpha'], ['pp-k-b', 'Beta']], 'a link per pane, in order');
+        assert.ok(html.includes('<div class="pick-pane" id="pp-k-a">'), 'pane a is in the page');
+        assert.ok(html.includes('<div class="pick-pane" id="pp-k-b">'), 'pane b is in the page');
+        assert.ok(html.includes('<nav class="pick-row" aria-label="Pick me">'), 'the chips are a nav with the label');
+        assert.ok(html.includes('<div class="pick-head"><h2>Headline</h2></div>'), 'the block keeps its heading');
     });
 
     await t.close();
