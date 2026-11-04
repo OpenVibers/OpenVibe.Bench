@@ -119,3 +119,15 @@ GET /api/v1/percentile?benchmark=&model=&score=
 
 `value` is the score per dollar, `speed` the score per minute, and `consistency` the spread of a model's scores
 inside one session (the lower, the steadier). The percentile says where a score sits among that model's runs.
+
+## Variants and measured evidence (P6, flag off)
+
+A model is not one id. A **variant family** groups the exact ids of one `<org>/<model>` across quants and revisions
+(`qwen/qwen3-9b-abliterated:q4_k_m@abc` and `qwen/qwen3-9b-abliterated:q8_0@def` are one family, two variants). Bench
+records typed measurements per exact id — TTFT p50/p95, prefill and decode tokens/s, cold start, success and timeout
+counts — and returns each with its sample count and confidence. Sparse evidence says so; it is never filled in from a
+sibling revision or the family.
+
+The evidence is written only by a **finished pinned round** or an authenticated **run**, never by a model about
+itself, and it carries no prompt or output text. The API is in [api.md](api.md#model-variant-evidence-p6). The whole
+surface is behind `BENCH_VARIANT_EVIDENCE` and is off by default.

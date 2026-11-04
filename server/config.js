@@ -79,6 +79,9 @@ function load(env = process.env) {
 
         // Bench budgets and jobs.
         bench: {
+            // P6 model-variant evidence (exact ids, quants, revisions and their measured numbers). Off until the
+            // owner turns it on; off, none of its routes exist and nothing writes its table.
+            variantEvidence: bool(env.BENCH_VARIANT_EVIDENCE, false),
             roundsPerDay: Math.max(1, int(env.BENCH_ROUNDS_PER_DAY, 3)),
             roundsDaily: Math.max(1, int(env.BENCH_ROUNDS_DAILY, 20)),
             intervalMs: Math.max(250, int(env.BENCH_JOB_INTERVAL_MS, 1500)),

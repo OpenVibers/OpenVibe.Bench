@@ -26,6 +26,7 @@ const { createSso } = require('./auth/sso');
 const { createPrincipal } = require('./http/principal');
 const { createApi } = require('./http/api');
 const { createRegistryApi } = require('./http/registry');
+const { createVariantEvidenceApi } = require('./http/variant-evidence');
 const { createPageRoutes } = require('./http/pages');
 const { createShowcaseRoutes, createShowcasePages } = require('./http/showcase');
 const { createGalleryRoutes, createGalleryPages } = require('./http/gallery');
@@ -97,9 +98,13 @@ async function createApp(opts = {}) {
         : async () => { throw new Error('OV_OAUTH_CLIENT_SECRET is not set: Bench cannot answer account events'); });
 
     const launcher = createLauncher({ config, registry, fetchImpl: fetchImpl || globalThis.fetch, log });
+    // P6: model-variant evidence. The whole surface is absent while the flag is off.
+    const variantEvidence = config.bench.variantEvidence
+        ? require('./bench/variant-evidence').createVariantEvidence({ s, log })
+        : null;
     const ctx = {
         config, s, keys, sso, principal, bench, registry, launcher, ai, jobs, publisher, accountData, accountSend, log, fetchImpl,
-        anon, daily,
+        anon, daily, variantEvidence,
         imports, mirror,
         random: opts.random || Math.random,
     };
@@ -230,6 +235,7 @@ async function createApp(opts = {}) {
     app.use('/api/v1', rateLimit({ windowMs: 60_000, limit: Number(process.env.BENCH_API_RATE_LIMIT_PER_MIN) || 240, standardHeaders: true, legacyHeaders: false, handler: (req, res) => contracts.http.sendProblem(res, 429, 'rate_limited', { detail: 'too many requests from this address; retry shortly', ctx: req.ov }) }));
     app.use('/api/v1', createApi(ctx));
     app.use('/api/v1', createRegistryApi(ctx));
+    if (variantEvidence) app.use('/api/v1', createVariantEvidenceApi(ctx));
     app.use('/api/v1/showcase', createShowcaseRoutes(ctx));
     app.use('/api/v1/gallery', createGalleryRoutes(ctx));
     app.use('/api/v1', createPickRoutes(ctx));

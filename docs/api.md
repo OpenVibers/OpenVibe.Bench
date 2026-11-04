@@ -137,6 +137,98 @@ granted is refused with `bench.clip_source_denied` and nothing is stored.
 (`GET /api/v1/judgements/next?kind=live.clip`) and on the battle page, and never once `expires_at` has passed: an
 expired clip is shown as expired and its link is not served.
 
+## Model-variant evidence (P6)
+
+P6 records measured throughput, TTFT and cold-start evidence per **exact model id**, grouped into variant families.
+It is Bench's evaluation evidence for a placement: Bench still never runs inference, and nothing here starts a run.
+The whole surface is behind `BENCH_VARIANT_EVIDENCE` and is **off** by default; with the flag off these routes do not
+exist (a 404 with `route.not_found`).
+
+An exact id is the D3 form `<org>/<model>[:<quant>]@<revision>`, and the quant and the revision are optional:
+
+```
+qwen/qwen3-9b-abliterated:q4_k_m@3f2a1c9
+qwen/qwen3-9b-abliterated:q4_k_m
+qwen/qwen3-9b-abliterated@main
+qwen/qwen3-9b-abliterated
+```
+
+The **family** is `<org>/<model>`, so the four ids above are one family with two quants and two revisions.
+
+| Route | Who | What |
+|---|---|---|
+| `GET /api/v1/variant-families` | anyone | Every family: its exact ids (variants), quants, revisions and sample counts. |
+| `GET /api/v1/variant-families/:family` | anyone | One family; `:family` is URL-encoded (`qwen%2Fqwen3-9b-abliterated`). |
+| `GET /api/v1/variant-evidence` | anyone | Every exact id's evidence; `?family=` filters one family. |
+| `GET /api/v1/variant-evidence/:exactId` | anyone | One exact id; `:exactId` is URL-encoded. |
+| `POST /api/v1/variant-evidence` | a service token | Record one observation from a pinned round or an authenticated run. |
+
+A write is accepted only from a service token, never from a person, an anonymous caller or a model's own agent:
+
+- **A pinned round** (`source.kind: "round"`, `source.id: "brd_…"`) needs `bench.entry.create`. The round must be
+  `finished` and carry its receipt; a queued or failed round is refused.
+- **A run** (`source.kind: "run"`) needs `bench.run.publish`. A Bench run (`brn_…`) must be `verified`; a Run job
+  (`job_…`) or AI run (`run_…`) is recorded as an authenticated run. A submitted run is refused.
+- A token whose identity names the model (for example `agent:qwen/qwen3-9b-abliterated`) is refused with
+  `bench.self_rating`: a model never rates itself.
+
+```json
+{
+  "exact_id": "qwen/qwen3-9b-abliterated:q4_k_m@3f2a1c9",
+  "source": { "kind": "round", "id": "brd_0123456789ABCDEFGHJKMNPQRS" },
+  "measured_at": "2026-11-04T10:00:00.000Z",
+  "sample_count": 120,
+  "success_count": 118,
+  "timeout_count": 2,
+  "ttft_p50_ms": 210,
+  "ttft_p95_ms": 480,
+  "prefill_tokens_per_s": 1420,
+  "decode_tokens_per_s": 86.5,
+  "cold_start_ms": 5300
+}
+```
+
+A rate may be sent instead of its count (`success_rate`, `timeout_rate`, each 0 to 1); it is converted with the
+sample count. `sample_count` is required. Every other number is optional, and a missing one stays `null` — it is never
+guessed or filled in from the family or another revision.
+
+The read returns the observations and their totals. The newest observation's metrics are also on the variant for
+convenience, and `observations` keeps each source's own numbers:
+
+```json
+{
+  "evidence": {
+    "exact_id": "qwen/qwen3-9b-abliterated:q4_k_m@3f2a1c9",
+    "family": "qwen/qwen3-9b-abliterated",
+    "quant": "q4_k_m",
+    "revision": "3f2a1c9",
+    "sample_count": 120,
+    "success_rate": 0.983333,
+    "timeout_rate": 0.016667,
+    "confidence": {
+      "level": "high",
+      "sparse": false,
+      "samples": 120,
+      "minimum_samples": 10,
+      "success_rate": { "estimate": 0.983333, "lower": 0.9412, "upper": 0.9965 }
+    },
+    "metrics": { "ttft_p50_ms": 210, "ttft_p95_ms": 480, "decode_tokens_per_s": 86.5 },
+    "ttft_p50_ms": 210,
+    "ttft_p95_ms": 480,
+    "provenance": { "kind": "round", "id": "brd_…", "receipt": "…" },
+    "observations": [ { "sample_count": 120, "metrics": { "…": "…" }, "provenance": { "…": "…" } } ]
+  }
+}
+```
+
+`confidence.level` is `sparse` under 10 samples, `low` from 10, `moderate` from 30 and `high` from 100;
+`sparse: true` is always explicit. The success and timeout intervals are Wilson bounds. A rate across several
+observations is returned only when every observation counts that outcome; a missing count is not a zero.
+
+**Private sets stay private.** The evidence table has no prompt, output, payload or transcript column, the write
+ignores any such fields, and the read routes never join a task, benchmark or entry. The only text in a row is an
+exact id, a family, and the id of the round or run that produced it.
+
 ## The older API
 
 Bench also serves kinds, tasks, rounds, entries, judgements, the boards, the models, the open dataset and the private
