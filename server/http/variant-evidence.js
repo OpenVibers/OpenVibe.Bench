@@ -20,8 +20,10 @@ const { asyncRouter } = require('./router');
 const { isSelfRating, validateObservation, VariantEvidenceError, SELF_RATING } = require('../bench/variant-evidence');
 
 function createVariantEvidenceApi(ctx) {
-    const { principal, variantEvidence, log } = ctx;
+    const { principal, variantEvidence, config, log } = ctx;
     const r = asyncRouter();
+    // D11 owner settings: the switch is read live. Off, these paths are the API's ordinary 404 and nothing is read.
+    r.use((_req, _res, next) => (config.bench.variantEvidence ? next() : next('router')));
 
     r.use(express.json({ limit: '64kb' }));
     r.use((req, res, next) => (req.principal ? next() : principal.middleware(req, res, next)));

@@ -24,6 +24,7 @@ const { openStore } = require('./db');
 const { createKeyStore } = require('./auth/keys');
 const { createSso } = require('./auth/sso');
 const { createPrincipal } = require('./http/principal');
+const createVariantEvidenceConfig = require('./variant-evidence-config').create;
 const { createApi } = require('./http/api');
 const { createRegistryApi } = require('./http/registry');
 const { createVariantEvidenceApi } = require('./http/variant-evidence');
@@ -75,6 +76,9 @@ async function createApp(opts = {}) {
     const keys = createKeyStore({ config, fetchImpl, log });
     const sso = createSso({ config, keys, fetchImpl, now: opts.now || (() => Date.now()), log });
     const principal = createPrincipal({ config, keys });
+    // D11 owner settings (bench.variant_evidence): the switch is read through the store, env pins winning.
+    const evidenceConfig = await createVariantEvidenceConfig({ db: s.db, principal, config, env: opts.env || process.env, log });
+    Object.defineProperty(config.bench, 'variantEvidence', { enumerable: true, configurable: true, get: () => evidenceConfig.get('enabled') });
 
     const bench = opts.bench || createStore(s, { config, log, random: opts.random });
     const registry = opts.registry || createRegistry(s, { log });
@@ -98,13 +102,11 @@ async function createApp(opts = {}) {
         : async () => { throw new Error('OV_OAUTH_CLIENT_SECRET is not set: Bench cannot answer account events'); });
 
     const launcher = createLauncher({ config, registry, fetchImpl: fetchImpl || globalThis.fetch, log });
-    // P6: model-variant evidence. The whole surface is absent while the flag is off.
-    const variantEvidence = config.bench.variantEvidence
-        ? require('./bench/variant-evidence').createVariantEvidence({ s, log })
-        : null;
+    // P6: model-variant evidence. Constructed always so the owner switch applies live; its API returns 404 while off.
+    const variantEvidence = require('./bench/variant-evidence').createVariantEvidence({ s, log });
     const ctx = {
         config, s, keys, sso, principal, bench, registry, launcher, ai, jobs, publisher, accountData, accountSend, log, fetchImpl,
-        anon, daily, variantEvidence,
+        anon, daily, variantEvidence, evidenceConfig,
         imports, mirror,
         random: opts.random || Math.random,
     };
@@ -152,6 +154,8 @@ async function createApp(opts = {}) {
 
     const valkey = opts.valkey !== undefined ? opts.valkey : (config.valkey.url ? require('openvibe-sdk/valkey').createValkey({ url: config.valkey.url, prefix: config.valkey.prefix, log }) : null);
     ctx.valkey = valkey;
+
+    evidenceConfig.mount(app);
 
     app.use(contracts.http.middleware());
     app.use(helmet({
@@ -235,7 +239,7 @@ async function createApp(opts = {}) {
     app.use('/api/v1', rateLimit({ windowMs: 60_000, limit: Number(process.env.BENCH_API_RATE_LIMIT_PER_MIN) || 240, standardHeaders: true, legacyHeaders: false, handler: (req, res) => contracts.http.sendProblem(res, 429, 'rate_limited', { detail: 'too many requests from this address; retry shortly', ctx: req.ov }) }));
     app.use('/api/v1', createApi(ctx));
     app.use('/api/v1', createRegistryApi(ctx));
-    if (variantEvidence) app.use('/api/v1', createVariantEvidenceApi(ctx));
+    app.use('/api/v1', createVariantEvidenceApi(ctx));
     app.use('/api/v1/showcase', createShowcaseRoutes(ctx));
     app.use('/api/v1/gallery', createGalleryRoutes(ctx));
     app.use('/api/v1', createPickRoutes(ctx));
