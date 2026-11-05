@@ -40,7 +40,7 @@ async function boot(opts = {}) {
     const config = configLib.load(env);
     const testdb = opts.store ? null : await require('./db').testDb({ store: opts.testStore });
     const store = opts.store || createStore(testdb.db, { now: opts.now });
-    const built = await createApp({ config, store, benchAi: opts.benchAi, log, now: opts.now, accountSend: opts.accountSend, random: opts.random, telemetrySink: opts.telemetrySink });
+    const built = await createApp({ config, env, store, benchAi: opts.benchAi, log, now: opts.now, accountSend: opts.accountSend, random: opts.random, telemetrySink: opts.telemetrySink });
     await built.ctx.keys.ensure();
     const server = await new Promise((resolve) => { const s = http.createServer(built.app); s.listen(0, '127.0.0.1', () => resolve(s)); });
     const base = `http://127.0.0.1:${server.address().port}`;
