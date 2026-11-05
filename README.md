@@ -34,5 +34,5 @@ JSON under `/api/v1`; errors are `application/problem+json`. See `/docs` for the
 <!-- versions:start -->
 - openvibe-contracts: v0.289.1
 - openvibe-sdk: v0.82.0
-- openvibe-shared: v4.110.0
+- openvibe-shared: v4.112.0
 <!-- versions:end -->
