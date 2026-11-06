@@ -154,6 +154,11 @@ const { boot, check, done } = require('./helpers/boot');
                 bearer: exchange, json: { prompt: 'hi', category: 'chat', entries: [{ provider: 'x', model: 'y', answer: ' ' }, ENTRIES[1]] },
             });
             assert.strictEqual(blank.status, 422, blank.text);
+            const same = await t.get('/api/v1/arena/rounds', {
+                bearer: exchange, json: { prompt: 'hi', category: 'chat', entries: [ENTRIES[0], { ...ENTRIES[1], model: ENTRIES[0].model }] },
+            });
+            assert.strictEqual(same.status, 422, same.text);
+            assert.ok(same.json().detail.includes('two different models'));
         });
     } finally { await t.close(); }
 

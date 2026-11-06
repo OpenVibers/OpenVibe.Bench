@@ -340,6 +340,10 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         if (clean.some((e) => !e.provider || !e.model || !e.answer.trim())) {
             throw new BenchError(422, 'bench.invalid_entries', 'Every answer needs a provider, a model and text.');
         }
+        // One model against itself is not a comparison: it could never move a rating.
+        if (new Set(clean.map((e) => e.model)).size < 2) {
+            throw new BenchError(422, 'bench.invalid_entries', 'An arena round needs answers from two different models.');
+        }
 
         const cap = config ? config.bench.arenaRoundsDaily : 2000;
         const used = num(await db.value('SELECT COUNT(*)::int AS n FROM bench_rounds WHERE kind_id = $1 AND created_at >= $2::timestamptz',
