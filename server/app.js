@@ -30,6 +30,7 @@ const { createRegistryApi } = require('./http/registry');
 const { createVariantEvidenceApi } = require('./http/variant-evidence');
 const { createPageRoutes } = require('./http/pages');
 const { createShowcaseRoutes, createShowcasePages } = require('./http/showcase');
+const { createArenaRoutes } = require('./http/arena');
 const { createGalleryRoutes, createGalleryPages } = require('./http/gallery');
 const { createPickPages, createPickRoutes } = require('./http/pick');
 const { createBadgeRoutes } = require('./http/badge');
@@ -241,6 +242,7 @@ async function createApp(opts = {}) {
     app.use('/api/v1', createRegistryApi(ctx));
     app.use('/api/v1', createVariantEvidenceApi(ctx));
     app.use('/api/v1/showcase', createShowcaseRoutes(ctx));
+    app.use('/api/v1/arena', createArenaRoutes(ctx));
     app.use('/api/v1/gallery', createGalleryRoutes(ctx));
     app.use('/api/v1', createPickRoutes(ctx));
     app.use(require('./http/mirror').createMirrorRoutes(ctx));
