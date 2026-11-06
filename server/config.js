@@ -88,6 +88,9 @@ function load(env = process.env) {
             pollMs: Math.max(250, int(env.BENCH_POLL_MS, 20_000)),
             maxPrompt: Math.max(20, int(env.BENCH_MAX_PROMPT, 4000)),
             evalsPerDay: Math.max(1, int(env.BENCH_EVALS_PER_DAY, 20)),
+            // The Arena's own cap: its rounds skip a person's daily quota (the Exchange already paces its
+            // people), so the day's total is the guard.
+            arenaRoundsDaily: Math.max(1, int(env.BENCH_ARENA_ROUNDS_DAILY, 2000)),
             provisionalGames: Math.max(1, int(env.BENCH_PROVISIONAL_GAMES, 10)),
             // Battles: how many votes one person and one network may cast.
             battlePersonPerHour: Math.max(1, int(env.BENCH_BATTLE_PERSON_PER_HOUR, 30)),

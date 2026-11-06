@@ -20,6 +20,9 @@ const CATEGORY_DEFAULT = 'all';
 // The rating categories: everyone ('all'), the signed-in people ('people') and the anonymous voters ('anon').
 const CATEGORY_PEOPLE = 'people';
 const CATEGORY_ANON = 'anon';
+// The Arena's kind and the first-party service that builds its rounds (OpenVibe.Exchange).
+const ARENA_KIND = 'chat.arena';
+const ARENA_SERVICE = 'service:exchange';
 
 const num = (v, d = 0) => (v == null || v === '' || Number.isNaN(Number(v)) ? d : Number(v));
 const iso = (v) => (v == null ? null : (v instanceof Date ? v.toISOString() : String(v)));
@@ -119,12 +122,26 @@ function kindOfVoter(voterKind, subject) {
     return 'service';
 }
 
-/** The rating categories a vote is counted in: everyone, and the kind of voter it came from. */
-function categoriesOf(voterKind) {
+/**
+ * The rating categories a vote is counted in: everyone, the kind of voter it came from, and the task's own
+ * category (code, writing, chat, reasoning…) when the room classified the prompt. One vote updates each of
+ * them, so a board can show all votes, only people's, or only one kind of task.
+ */
+function categoriesOf(voterKind, taskCategory = null) {
     const out = [CATEGORY_DEFAULT];
     if (voterKind === 'person') out.push(CATEGORY_PEOPLE);
     else if (voterKind === 'anon') out.push(CATEGORY_ANON);
-    return out;
+    const task = normalizeCategory(taskCategory);
+    if (task) out.push(task);
+    return [...new Set(out)];
+}
+
+/** A task category is a short slug; 'all', 'people' and 'anon' are the board's own, never a task's. */
+function normalizeCategory(value) {
+    const slug = String(value == null ? '' : value).toLowerCase()
+        .replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+    if (!slug || slug === CATEGORY_DEFAULT || slug === CATEGORY_PEOPLE || slug === CATEGORY_ANON) return null;
+    return slug;
 }
 
 function wireRating(row) {
@@ -302,6 +319,69 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         return { ok: true, round: await getRound(id) };
     }
 
+    /**
+     * One Arena round for OpenVibe.Exchange: a person's prompt, two or three answers from different models, and
+     * a round this service owns. The Exchange's rounds spend no AI and no person's daily quota here; they have
+     * their own daily cap. The voter is the person who asked, so the creator rule still keeps this service from
+     * voting on the round it built.
+     */
+    async function createArenaRound({ prompt, category = null, entries = [] } = {}) {
+        const list = Array.isArray(entries) ? entries.slice(0, 3) : [];
+        if (list.length < 2) throw new BenchError(422, 'bench.invalid_entries', 'An arena round needs two answers.');
+        const clean = list.map((e) => ({
+            provider: String((e && e.provider) || '').slice(0, 80),
+            model: String((e && e.model) || '').slice(0, 120),
+            answer: String((e && e.answer) == null ? '' : e.answer).slice(0, 16000),
+            costUsd: num(e && e.cost_usd),
+            ms: num(e && e.ms),
+            tokens: num(e && e.tokens),
+            runId: e && e.run_id ? String(e.run_id).slice(0, 120) : null,
+        }));
+        if (clean.some((e) => !e.provider || !e.model || !e.answer.trim())) {
+            throw new BenchError(422, 'bench.invalid_entries', 'Every answer needs a provider, a model and text.');
+        }
+        // One model against itself is not a comparison: it could never move a rating.
+        if (new Set(clean.map((e) => e.model)).size < 2) {
+            throw new BenchError(422, 'bench.invalid_entries', 'An arena round needs answers from two different models.');
+        }
+
+        const cap = config ? config.bench.arenaRoundsDaily : 2000;
+        const used = num(await db.value('SELECT COUNT(*)::int AS n FROM bench_rounds WHERE kind_id = $1 AND created_at >= $2::timestamptz',
+            [ARENA_KIND, dayStart()]));
+        if (used >= cap) throw new BenchError(429, 'bench.arena_limit', 'The arena has reached its rounds for today.');
+
+        const taskOut = await createTask({
+            kindId: ARENA_KIND, prompt, taskClass: normalizeCategory(category), public: true, subject: ARENA_SERVICE,
+        });
+        if (!taskOut.ok) throw new BenchError(taskOut.status || 400, taskOut.code || 'bench.invalid', taskOut.message || 'invalid task');
+        const built = await createRound({
+            taskId: taskOut.task.id,
+            offers: clean.map((e) => ({ provider: e.provider, model: e.model })),
+            subject: ARENA_SERVICE,
+            bypassQuota: true,
+        });
+        if (!built.ok) throw new BenchError(built.status || 400, built.code || 'bench.invalid', built.message || 'invalid round');
+
+        const roundId = built.round.id;
+        const made = [];
+        try {
+            for (const e of clean) {
+                made.push(await addEntry({
+                    roundId, provider: e.provider, model: e.model, payload: { answer: e.answer },
+                    costUsd: e.costUsd, ms: e.ms, tokens: e.tokens, runId: e.runId,
+                }));
+            }
+        } catch (err) {
+            await db.exec('DELETE FROM bench_rounds WHERE id = $1', [roundId]);
+            throw err;
+        }
+        const sides = ['left', 'right', 'third'];
+        return {
+            round: await getRound(roundId, { viewerSubject: ARENA_SERVICE }),
+            entries: made.map((e, i) => ({ id: e.id, side: sides[i], provider: e.provider, model: e.model })),
+        };
+    }
+
     async function getRound(id, { viewerSubject = null } = {}) {
         const r = await db.maybe('SELECT * FROM bench_rounds WHERE id = $1', [String(id || '')]);
         if (!r) return null;
@@ -477,7 +557,9 @@ function createStore(s, { log = console, random = Math.random, config = null } =
                 );
                 // One stream poll is one game, regardless of audience size. The counts are evidence, not Elo weight.
                 if (judge === 'human_pairwise' || judge === 'game_outcome' || (judge === 'audience_poll' && voteCounts.voters > 0)) {
-                    await applyPairwiseRating(r.id, r.kind_id, left, right, outcome, kindOfVoter(voterKind, subject));
+                    const task = await getTask(r.task_id);
+                    await applyPairwiseRating(r.id, r.kind_id, left, right, outcome, kindOfVoter(voterKind, subject),
+                        task && task.task_class);
                 }
                 await insertOutbox('bench.judgement.recorded', {
                     judgement_id: id, round_id: r.id, kind_id: r.kind_id, judge, method: judge, outcome: outcome || null, score: score == null ? null : num(score),
@@ -490,14 +572,15 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         }
     }
 
-    async function applyPairwiseRating(roundId, kindId, left, right, outcome, voterKind = 'person') {
+    async function applyPairwiseRating(roundId, kindId, left, right, outcome, voterKind = 'person', taskCategory = null) {
         if (outcome === 'both_bad') return;
         if (!left || !right || left.model === right.model) return;
         const models = [left.model, right.model];
         const now = s.iso();
-        // The vote is counted twice: once for everyone ('all') and once for the kind of voter it came from
-        // ('people' or 'anon'), so a board can show the signed-in votes alone and still count the rest.
-        for (const category of categoriesOf(voterKind)) {
+        // The vote is counted for everyone ('all'), for the kind of voter it came from ('people' or 'anon')
+        // and for the task's own category (code, writing, chat, reasoning…), so a board can show the votes
+        // for one kind of work beside the whole.
+        for (const category of categoriesOf(voterKind, taskCategory)) {
             for (const model of models) {
                 await db.exec(
                     `INSERT INTO bench_ratings (kind_id, category, subject, elo, games, wins, losses, ties, win_rate, ci_lower, ci_upper, updated_at)
@@ -554,7 +637,10 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         const subjects = await subjectsFor(kindId);
         const ratings = await db.many('SELECT * FROM bench_ratings WHERE kind_id = $1 AND category = $2', [kindId, category]);
         const by = new Map(ratings.map((r) => [r.subject, wireRating(r)]));
-        const rows = subjects.map((subject) => {
+        // A task category only lists the models that played in it: a model with no game in this kind of
+        // work has no place on its board, rather than a baseline score it never earned.
+        const taskCategory = ![CATEGORY_DEFAULT, CATEGORY_PEOPLE, CATEGORY_ANON].includes(category);
+        const rows = (taskCategory ? subjects.filter((subject) => by.has(subject)) : subjects).map((subject) => {
             const r = by.get(subject);
             const games = r ? r.games : 0;
             return {
@@ -611,7 +697,8 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         const c = String(category == null ? '' : category).trim().toLowerCase();
         if (c === 'people' || c === 'person') return CATEGORY_PEOPLE;
         if (c === 'anon' || c === 'anonymous') return CATEGORY_ANON;
-        return CATEGORY_DEFAULT;
+        // A task category (code, writing, chat, reasoning…) is its own board.
+        return normalizeCategory(c) || CATEGORY_DEFAULT;
     }
 
     /** How many votes of each kind of voter a board holds. */
@@ -847,7 +934,7 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         wireKind, wireTask, wireRound, wireEntry, wireJudgement, wireRating, wireEval, wireEvalRun,
         insertOutbox, seedKinds, listKinds, getKind,
         createTask, getTask,
-        createRound, getRound, addEntry, maybeReady, finishRound, clipPolicies,
+        createRound, createArenaRound, getRound, addEntry, maybeReady, finishRound, clipPolicies,
         nextJudgement, castJudgement, pairwiseGames,
         board, valueRows, modelSummary, dataset, datasetJsonl,
         createEval, getEval, runEval, evalResults, evalDailyCount,
