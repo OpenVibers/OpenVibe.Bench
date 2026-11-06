@@ -77,7 +77,10 @@ function createPageRoutes(ctx) {
     const readableBenchmark = async (req, ref) => {
         const out = await registry.getDefinition(String(ref || ''), { reveal: false });
         if (!out) return null;
-        return canViewBenchmark(out.benchmark, { subject: subjectOf(req) }) ? out : null;
+        if (canViewBenchmark(out.benchmark, { subject: subjectOf(req) })) return out;
+        // A benchmark shared with specific people: its row says private, the uniform share row names them.
+        const shared = ctx.sharing ? await ctx.sharing.canView({ subject: subjectOf(req) }, out.benchmark.id).catch(() => false) : false;
+        return shared ? out : null;
     };
 
     /** The public board of a kind: the first public benchmark with verified runs, else the first public one. */
