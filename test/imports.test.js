@@ -324,6 +324,8 @@ function multipart(filename, bytes) {
                 account_data_events: 'the ledger of the requests themselves',
                 bench_ratings: 'the ratings are an aggregate over the models',
                 config_snapshots: 'D11 configuration revisions: created_by names the owner who changed a setting, not a person\'s account data',
+                share_members: 'jsonb subject: the SDK table map cannot name it; extraExport/extraErase cover the share rows',
+                share_access_requests: 'jsonb subject: the SDK table map cannot name it; extraExport/extraErase cover the share rows',
             },
         });
         assert.deepStrictEqual(missing, [], 'a table with a person column is neither covered nor exempted: ' + missing.join(', '));

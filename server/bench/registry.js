@@ -297,7 +297,7 @@ function parseRef(ref) {
     return { id: text, version: null };
 }
 
-function createRegistry(s, { log = console } = {}) {
+function createRegistry(s, { log = console, sharing = null } = {}) {
     const db = s.db;
 
     // ── Benchmarks ───────────────────────────────────────────
@@ -318,6 +318,7 @@ function createRegistry(s, { log = console } = {}) {
             [id, String(owner || 'openvibe'), text, String(description || '').slice(0, 4000), kindId,
                 JSON.stringify(list), vis, parent || null, JSON.stringify(definition || {}), String(subject || owner || 'openvibe'), s.iso()],
         );
+        if (sharing) await sharing.register({ subject: /^usr_/.test(String(subject || '')) ? String(subject) : null }, id, vis);
         return { ok: true, benchmark: await getBenchmark(id, { revealDraft: true }) };
     }
 
@@ -577,6 +578,8 @@ function createRegistry(s, { log = console } = {}) {
             `UPDATE bench_benchmarks SET visibility = $1, share_token_hash = $2, updated_at = $3::timestamptz
              WHERE id = $4 RETURNING *`,
             [vis, token ? shareTokenHash(token) : null, s.iso(), benchmark.id]);
+        // The uniform share row keeps the registry's own visibility (and every read that filters on it) in step.
+        if (sharing) await sharing.syncAudience(benchmark.id, vis);
         return {
             ok: true,
             benchmark: wireBenchmark(row),

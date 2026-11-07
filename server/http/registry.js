@@ -73,7 +73,13 @@ function createRegistryApi(ctx) {
         subject: subjectOf(req),
         executor: req.principal.kind === 'app' && req.principal.hasCapability('bench.run.publish'),
     });
-    const mayRead = (req, benchmark) => canViewBenchmark(benchmark, viewerOf(req));
+    // The registry's own check first (public, the owner, the executor, a shared unlisted token), then the
+    // uniform share row for a benchmark that is shared with specific people (its column says private).
+    const mayRead = async (req, benchmark) => {
+        if (canViewBenchmark(benchmark, viewerOf(req))) return true;
+        if (!ctx.sharing) return false;
+        return await ctx.sharing.canView({ subject: subjectOf(req) }, benchmark.id).catch(() => false);
+    };
 
     /** The owner, including a service token that created the benchmark, may see its held-out task text. */
     const owns = (req, benchmark) => {
@@ -143,7 +149,7 @@ function createRegistryApi(ctx) {
         const subject = subjectOf(req) || req.principal.requester;
         try {
             const bm = await registry.getBenchmark(String(req.params.id || ''));
-            if (!bm || !mayRead(req, bm)) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
+            if (!bm || !await mayRead(req, bm)) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
             const out = await registry.forkBenchmark(String(req.params.id || ''), {
                 version: b.version == null ? null : Number(b.version),
                 title: b.title || null,
@@ -192,7 +198,7 @@ function createRegistryApi(ctx) {
             if (!out) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
             // A private benchmark answers only its owner and the executor; a shared unlisted one only its owner by
             // id (the token link is the way in). Everyone else gets a 404, not a "forbidden".
-            if (!mayRead(req, out.benchmark)) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
+            if (!await mayRead(req, out.benchmark)) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
             const reveal = mayReveal(req) || owns(req, out.benchmark);
             let definition = out.version.definition;
             let taskMeta = out.task_meta;
@@ -253,7 +259,7 @@ function createRegistryApi(ctx) {
             // A run may only be published on a benchmark its author may read: another person's private one is a 404.
             const bmId = String(doc.benchmark_id || doc.benchmark || '').split('@')[0];
             const bm = bmId ? await registry.getBenchmark(bmId) : null;
-            if (bm && !mayRead(req, bm)) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
+            if (bm && !await mayRead(req, bm)) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
             const out = await registry.publishRun(doc, { provenance, subject });
             if (!out.ok) return problem(res, out.status || 400, out.code || 'bench.invalid', out.message || 'invalid run');
             res.set('Location', `/api/v1/runs/${out.run.id}`);
@@ -285,7 +291,7 @@ function createRegistryApi(ctx) {
             let allPublic = true;
             for (const run of out.runs) {
                 const bm = await registry.getBenchmark(run.benchmark_id);
-                if (!bm || mayRead(req, bm)) allowed.push(run);
+                if (!bm || await mayRead(req, bm)) allowed.push(run);
                 if (!bm || bm.visibility !== 'public') allPublic = false;
             }
             if (!allowed.length) return problem(res, 404, 'bench.run_not_found', 'No such run.');
@@ -316,7 +322,7 @@ function createRegistryApi(ctx) {
         }
         try {
             const bm = await registry.getBenchmark(benchmark.split('@')[0]);
-            if (!bm || !mayRead(req, bm)) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
+            if (!bm || !await mayRead(req, bm)) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
             const out = await registry.rankings({
                 benchmark,
                 metric,
@@ -338,7 +344,7 @@ function createRegistryApi(ctx) {
         if (req.query.score == null) return invalid(res, 'score is required: ?score=…');
         try {
             const bm = await registry.getBenchmark(benchmark.split('@')[0]);
-            if (!bm || !mayRead(req, bm)) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
+            if (!bm || !await mayRead(req, bm)) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
             const out = await registry.percentile({ benchmark, model, score: Number(req.query.score) });
             if (!out) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
             res.set('Cache-Control', bm.visibility === 'public' ? 'public, max-age=60' : 'private, no-store');

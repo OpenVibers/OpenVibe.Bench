@@ -117,6 +117,20 @@ async function startNetwork() {
             return json(400, { error: 'unsupported_grant_type' });
         }
 
+        if (url.pathname === '/internal/identity/resolve-batch' && req.method === 'POST') {
+            const body = JSON.parse(raw.toString('utf8') || '{}');
+            const results = {};
+            for (const id of body.subject_ids || []) {
+                const u = [...st.users.values()].find((x) => x.subject === id);
+                results[id] = u ? { subject: { type: 'user', id }, username: u.username, display_name: u.display_name, avatar_url: null, banned: false } : null;
+            }
+            return json(200, { results });
+        }
+        if (url.pathname === '/internal/identity/resolve' && req.method === 'GET') {
+            const name = (url.searchParams.get('username') || '').toLowerCase();
+            const u = [...st.users.values()].find((x) => x.username.toLowerCase() === name);
+            return u ? json(200, { subject: { type: 'user', id: u.subject }, username: u.username, display_name: u.display_name, avatar_url: null, banned: false }) : json(404, { error: 'no such person' });
+        }
         return json(404, { error: 'not found' });
     });
     issuer = srv.url;

@@ -46,6 +46,23 @@ const TABLES = [
 const GUARDED = ['bench_benchmarks', 'bench_benchmark_versions'];
 
 /** The benchmarks of the person: what they own and what they wrote, with their versions and their private runs. */
+
+/** The sharing system's rows (openvibe-sdk/share): jsonb subjects, so the SDK's table map cannot name them. */
+async function shareExport(db, subject) {
+    const owned = await db.many("SELECT * FROM shares WHERE service = $1 AND owner_subject->>'id' = $2", ['bench', subject]);
+    const member = await db.many("SELECT * FROM share_members WHERE service = $1 AND subject->>'id' = $2", ['bench', subject]);
+    const asked = await db.many("SELECT * FROM share_access_requests WHERE service = $1 AND subject->>'id' = $2", ['bench', subject]);
+    return owned.length || member.length || asked.length ? [{ name: 'shares.json', content: { owned, member_of: member, requests: asked } }] : [];
+}
+async function shareErase(t, subjects) {
+    for (const subject of subjects) {
+        await t.exec("DELETE FROM share_members WHERE service = $1 AND subject->>'id' = $2", ['bench', subject]);
+        await t.exec("DELETE FROM share_access_requests WHERE service = $1 AND subject->>'id' = $2", ['bench', subject]);
+        await t.exec("DELETE FROM share_transfers WHERE service = $1 AND (from_subject->>'id' = $2 OR to_subject->>'id' = $2)", ['bench', subject]);
+        await t.exec("DELETE FROM shares WHERE service = $1 AND owner_subject->>'id' = $2", ['bench', subject]);
+    }
+}
+
 async function extraExport(db, subject) {
     const files = [];
     const benchmarks = await db.many(`SELECT id, owner, title, description, kind, tags, visibility, parent, latest_version, draft, created_by, created_at, updated_at
@@ -68,10 +85,12 @@ async function extraExport(db, subject) {
         FROM bench_import_files f JOIN bench_imports i ON i.id = f.import_id
         WHERE i.owner = $1 OR i.created_by = $1 ORDER BY i.created_at DESC LIMIT 5000`, [subject]);
     if (uploads.length) files.push({ name: 'import_files.json', content: uploads });
+    files.push(...await shareExport(db, subject));
     return files;
 }
 
 async function extraErase(t, subjects, counts) {
+        await shareErase(t, subjects);
     // A private benchmark, or one made from the person's own pasted prompts (tagged your-prompts), is nothing but
     // their text: it goes with its versions and every run on it, wherever it was shared. A public or unlisted
     // benchmark another person ran stays as a tombstone, so their runs keep their place.

@@ -82,7 +82,9 @@ async function createApp(opts = {}) {
     Object.defineProperty(config.bench, 'variantEvidence', { enumerable: true, configurable: true, get: () => evidenceConfig.get('enabled') });
 
     const bench = opts.bench || createStore(s, { config, log, random: opts.random });
-    const registry = opts.registry || createRegistry(s, { log });
+    const { createSharing, describeRef } = require('./sharing');
+    const sharing = opts.sharing || createSharing({ db: s.db, config, fetchImpl, log });
+    const registry = opts.registry || createRegistry(s, { log, sharing });
     // B12: bringing your own results, and the operator's mirror.
     const imports = require('./bench/imports').createImports({ s, registry, log });
     const mirror = require('./bench/mirror').createMirror({ s, registry, fetchImpl, log });
@@ -107,7 +109,7 @@ async function createApp(opts = {}) {
     const variantEvidence = require('./bench/variant-evidence').createVariantEvidence({ s, log });
     const ctx = {
         config, s, keys, sso, principal, bench, registry, launcher, ai, jobs, publisher, accountData, accountSend, log, fetchImpl,
-        anon, daily, variantEvidence, evidenceConfig,
+        anon, daily, variantEvidence, evidenceConfig, sharing,
         imports, mirror,
         random: opts.random || Math.random,
     };
@@ -238,6 +240,18 @@ async function createApp(opts = {}) {
 
     // ── API and MCP ─────────────────────────────────────────
     app.use('/api/v1', rateLimit({ windowMs: 60_000, limit: Number(process.env.BENCH_API_RATE_LIMIT_PER_MIN) || 240, standardHeaders: true, legacyHeaders: false, handler: (req, res) => contracts.http.sendProblem(res, 429, 'rate_limited', { detail: 'too many requests from this address; retry shortly', ctx: req.ov }) }));
+    // ── /api/v1/<kind>/<id>/share — the uniform share API (openvibe-sdk/share) ────
+    {
+        const shareApi = express.Router();
+        shareApi.use(ctx.principal.middleware);
+        shareApi.use(sharing.shares.router({
+            service: 'bench',
+            authenticate: (req) => sharing.shareViewer(req.viewer),
+            describe: describeRef(s.db, config),
+        }));
+        const SHARE_PATH = /^\/api\/v1\/(?:shared-with-me$|share\/people$|[^/]+\/[^/]+\/share(?:\/|$))/;
+        app.use((req, res, next) => (SHARE_PATH.test(req.path) ? shareApi(req, res, next) : next()));
+    }
     app.use('/api/v1', createApi(ctx));
     app.use('/api/v1', createRegistryApi(ctx));
     app.use('/api/v1', createVariantEvidenceApi(ctx));

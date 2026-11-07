@@ -9,6 +9,7 @@
 const { html, raw, render } = require('../render/html');
 const { benchmarkUseThis, modelUseThis } = require('./usethis');
 const renderLib = require('../bench/render');
+const kit = require('openvibe-shared/kit');
 
 const MEDIA_ORIGIN = 'https://openvibe.media';
 
@@ -329,7 +330,7 @@ function benchmarkCard(b) {
 }
 
 /** The owner's sharing controls: private, an unlisted link, or public. Plain form posts, no JavaScript. */
-function shareBox({ benchmark, shareUrl = null, error = null }) {
+function shareBox({ benchmark, shareUrl = null, error = null, baseUrl = '' }) {
     const visibility = benchmark.visibility || 'private';
     const note = visibility === 'private'
         ? 'Private: only you can see this benchmark and its prompts. No link works.'
@@ -340,6 +341,7 @@ function shareBox({ benchmark, shareUrl = null, error = null }) {
 <div class="br-fold br-share-details"><input class="br-fold-toggle" type="checkbox" id="br-share-open"><label class="br-fold-h" for="br-share-open"><h2 id="br-share-h">Sharing</h2><span class="br-chip br-vis">${visibility}</span><span class="br-fold-mark" aria-hidden="true"></span></label>
 <div class="br-fold-body">
 <p class="br-fine">${note}</p>
+<p class="br-share-sheet">${raw(kit.share({ title: benchmark.title, url: `${String(baseUrl || '').replace(/\/+$/, '')}/benchmarks/${encodeURIComponent(benchmark.id)}`, text: benchmark.description || '', kind: 'benchmark', id: benchmark.id }))}</p>
 ${error ? html`<div class="bm-note is-bad" role="alert">${error}</div>` : ''}
 ${shareUrl ? html`<div class="bm-note br-share-now" role="status"><p>Your unlisted link is ready. It is shown once; copy it now. Share it again for a new link; the old one stops working.</p><label class="br-field"><span>The link</span><input class="br-share-link" type="text" readonly value="${shareUrl}" onfocus="this.select()"></label></div>` : ''}
 <form class="br-share-form" method="post" action="/benchmarks/${encodeURIComponent(benchmark.id)}/share">
@@ -413,7 +415,7 @@ function benchmarkPage({ benchmark, definition, version, rankings, metric = 'sco
 <div class="br-head-act">${runYourself}<p class="br-fine">${canRun ? 'On openvibe.codes, with your own keys or the free pool through OpenVibe.AI. The result is published here.' : codesRunUrl ? 'Only the owner starts runs on this benchmark. Its results are readable here.' : 'Running it on openvibe.codes with your own keys is coming. Today a run is published through the API.'}</p></div></header>
 ${privateNote}
 <dl class="br-facts"><div><dt>Tasks</dt><dd>${tasks.length}${hidden ? html` <span class="br-fine">(${hidden} hidden)</span>` : ''}</dd></div><div><dt>Judged by</dt><dd>${judges.length ? judges.map((j) => String(j.type).replace(/_/g, ' ')).join(', ') : '—'}</dd></div><div><dt>Limits</dt><dd>${[limits.ms ? fmtMs(limits.ms) : null, limits.tokens ? `${fmtTokens(limits.tokens)} tokens` : null, limits.usd ? fmtUsd(limits.usd) : null].filter(Boolean).join(' · ') || '—'}</dd></div><div><dt>Verified runs</dt><dd>${entries.reduce((n, e) => n + e.runs, 0)}</dd></div></dl>
-${owner ? shareBox({ benchmark, shareUrl: share && share.shareUrl, error: share && share.error }) : ''}
+${owner ? shareBox({ benchmark, shareUrl: share && share.shareUrl, error: share && share.error, baseUrl }) : ''}
 <div class="br-sections">
 <nav class="br-sec-pick" aria-label="Benchmark sections"><a href="#br-rank">Rankings</a><a href="#br-tasks">Tasks</a><a href="#br-runs">Runs</a></nav>
 ${ownBoards
