@@ -45,13 +45,13 @@ function createBenchJobs({ s, bench, ai, config, log = console }) {
             const slot = slots[i] || { provider: 'ai', model: null };
             try {
                 const out = await ai.generate({ prompt: task.prompt, kind: kind.entry, slot, roundId: round.id, index: i });
-                await bench.addEntry({
+                const entry = await bench.addEntry({
                     roundId: round.id, provider: out.provider, model: out.model,
                     route: { provider: out.provider, model: out.model },
                     payload: out.payload, costUsd: out.cost_usd, ms: out.ms, tokens: out.tokens,
                     uiCheck: out.ui_check, runId: out.run_id,
                 });
-                ok++;
+                if (!entry.error) ok++;
             } catch (err) {
                 const detail = String((err && (err.detail || err.message)) || err).slice(0, ERROR_MAX);
                 log.warn(`[OpenVibe.Bench] round ${round.id} output ${i} failed:`, detail);
