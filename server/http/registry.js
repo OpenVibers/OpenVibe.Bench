@@ -186,6 +186,12 @@ function createRegistryApi(ctx) {
                 q: req.query.q ? String(req.query.q) : null,
                 limit: req.query.limit ? Number(req.query.limit) : 50,
             });
+            const activity = await registry.runActivity();
+            for (const b of list) {
+                const a = activity.get(b.id);
+                b.runs = a ? a.runs : 0;
+                b.last_run = a ? a.last_run : null;
+            }
             res.set('Cache-Control', mine ? 'private, no-store' : 'public, max-age=60');
             return res.json({ count: list.length, benchmarks: list });
         } catch (err) { return failed(res, err); }
@@ -264,6 +270,49 @@ function createRegistryApi(ctx) {
             if (!out.ok) return problem(res, out.status || 400, out.code || 'bench.invalid', out.message || 'invalid run');
             res.set('Location', `/api/v1/runs/${out.run.id}`);
             return res.status(201).json({ run: out.run });
+        } catch (err) { return failed(res, err); }
+    });
+
+    // The public run list: newest first, on public benchmarks only. It is what Report's AI pages read for a
+    // model's history, a benchmark's latest results and the new-results feed; a submitted run is labelled by
+    // `provenance` and is not in the verified rankings.
+    r.get('/runs', async (req, res) => {
+        try {
+            const benchmark = req.query.benchmark ? String(req.query.benchmark).slice(0, 120) : null;
+            const model = req.query.model ? String(req.query.model).slice(0, 160) : null;
+            const kind = req.query.kind ? String(req.query.kind).slice(0, 80) : null;
+            if (kind && !require('../kinds').kindById(kind)) return problem(res, 404, 'bench.kind_not_found', 'No such kind.');
+            if (benchmark) {
+                const bm = await registry.getBenchmark(benchmark.split('@')[0]);
+                if (!bm || !await mayRead(req, bm) || bm.visibility !== 'public') {
+                    return problem(res, 404, 'bench.benchmark_not_found', 'No such public benchmark.');
+                }
+            }
+            const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
+            const offset = Math.max(0, Number(req.query.offset) || 0);
+            const runs = await registry.listRuns({ benchmark, model, kind, publicOnly: true, limit, offset });
+            res.set('Cache-Control', 'public, max-age=60');
+            return res.json({ count: runs.length, offset, runs, last_run: runs.length ? runs[0].created_at : null });
+        } catch (err) { return failed(res, err); }
+    });
+
+    // Public counts for the AI overview and method page. Nothing here is a person or an unlisted benchmark.
+    r.get('/overview', async (req, res) => {
+        try {
+            res.set('Cache-Control', 'public, max-age=60');
+            return res.json(await registry.overview());
+        } catch (err) { return failed(res, err); }
+    });
+
+    // One model's public record: verified medians per benchmark, its task-level best and worst, every public run
+    // newest first, and the cost and time those runs carried.
+    r.get('/models/:model/summary', async (req, res) => {
+        try {
+            const model = String(req.params.model || '').slice(0, 160);
+            if (!model) return invalid(res, 'model is required');
+            const out = await registry.modelDetail(model);
+            res.set('Cache-Control', 'public, max-age=60');
+            return res.json(out);
         } catch (err) { return failed(res, err); }
     });
 

@@ -272,6 +272,9 @@ async function createApp(opts = {}) {
     });
 
     // ── Pages ───────────────────────────────────────────────
+    // The public pages moved to OpenVibe.Report's AI section (2026-11-08). The API, MCP, render, badge and embed
+    // routes above stay; an HTML page is a 301 to its Report counterpart.
+    app.use(require('./http/redirect').createReportRedirects({ reportUrl: config.reportUrl }));
     app.use(rateLimit({ windowMs: 60_000, limit: Number(process.env.BENCH_RATE_LIMIT_PER_MIN) || 300, standardHeaders: true, legacyHeaders: false }));
     app.use('/render', createRenderRoutes(ctx));
     app.use('/vendor', require('./http/vendor').createVendorRoutes());

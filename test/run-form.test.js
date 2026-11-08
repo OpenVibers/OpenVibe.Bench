@@ -45,60 +45,6 @@ function fakeCodes() {
     assert.strictEqual(created.status, 201, created.text);
     const id = created.json().benchmark.id;
     assert.strictEqual((await t.get(`/api/v1/benchmarks/${id}/versions`, { bearer: publisher, json: {} })).status, 201);
-    const form = (fields) => new URLSearchParams(fields).toString();
-    const post = (fields, o = {}) => t.get(`/benchmarks/${id}/run`, { as: alice, raw: form(fields), headers: { 'content-type': 'application/x-www-form-urlencoded' }, ...o });
-    const runCalls = () => codes.calls.filter((c) => c.method === 'POST');
-
-    await check('the benchmark page links to its run form', async () => {
-        const res = await t.get(`/benchmarks/${id}`);
-        assert.ok(res.text.includes(`href="/benchmarks/${id}/run">Run it yourself`), 'the button opens the form, not a bare Codes link');
-    });
-
-    await check('signed out, the form asks you to sign in', async () => {
-        const res = await t.get(`/benchmarks/${id}/run`);
-        assert.strictEqual(res.status, 200, res.text.slice(0, 200));
-        assert.ok(res.text.includes('Sign in first'));
-        assert.ok(!res.text.includes('<form class="br-form"'), 'no form for a stranger');
-    });
-
-    await check('signed in, the form lists the benchmark matrix and Codes harnesses', async () => {
-        const res = await t.get(`/benchmarks/${id}/run`, { as: alice });
-        assert.ok(res.text.includes('<form class="br-form"'));
-        assert.ok(res.text.includes('value="model-a" checked'), 'the matrix model is picked');
-        assert.ok(res.text.includes('value="claude-code"') && res.text.includes('Codex'), "Codes' harness list");
-    });
-
-    await check('an estimate above $1 asks once more and reaches nobody', async () => {
-        const before = runCalls().length;
-        const res = await post([['models', 'model-a'], ['more_models', 'model-b'], ['harnesses', 'codex'], ['repeat', '1']]);
-        assert.strictEqual(res.status, 200, res.text.slice(0, 200));
-        assert.ok(res.text.includes('may cost up to') && res.text.includes('$2.00'), '2 tasks × 2 models × $0.50');
-        assert.ok(res.text.includes('name="confirm" value="1"') && res.text.includes('Confirm and start'));
-        assert.strictEqual(runCalls().length, before, 'Codes was not called');
-    });
-
-    await check('a confirmed run reaches Codes once, as the person, and lands on their tasks', async () => {
-        const before = runCalls().length;
-        const res = await post([['models', 'model-a'], ['more_models', 'model-b'], ['harnesses', 'codex'], ['repeat', '1'], ['confirm', '1']]);
-        assert.strictEqual(res.status, 303, res.text.slice(0, 200));
-        assert.strictEqual(res.headers.get('location'), `${codes.url}/tasks`);
-        const calls = runCalls().slice(before);
-        assert.strictEqual(calls.length, 1);
-        assert.deepStrictEqual(calls[0].body.models, ['model-a', 'model-b']);
-        assert.match(String(calls[0].headers.authorization), /^Bearer /, "Bench's own service token");
-        assert.ok(calls[0].headers['x-ov-subject'], 'names the person');
-    });
-
-    await check('nothing picked is said plainly', async () => {
-        const res = await post([['repeat', '1']]);
-        assert.strictEqual(res.status, 400);
-        assert.ok(res.text.includes('non-empty lists'));
-    });
-
-    await check('a cross-site form post is refused', async () => {
-        const res = await post([['models', 'model-a'], ['harnesses', 'codex'], ['repeat', '1']], { origin: 'https://evil.example' });
-        assert.strictEqual(res.status, 403);
-    });
 
     await check('the API answers the same way: 409 with the estimate, then 202', async () => {
         const body = { models: ['model-a', 'model-b'], harnesses: ['codex'], repeat: 1 };
@@ -120,13 +66,9 @@ function fakeCodes() {
         assert.strictEqual(res2.status, 201, res2.text);
         const nid = res2.json().benchmark.id;
         assert.strictEqual((await t.get(`/api/v1/benchmarks/${nid}/versions`, { bearer: publisher, json: {} })).status, 201);
-        const before = runCalls().length;
         const ask = await t.get(`/api/v1/benchmarks/${nid}/run`, { as: alice, json: { models: ['m'], harnesses: ['codex'], repeat: 1 } });
         assert.strictEqual(ask.status, 409, ask.text);
         assert.strictEqual(ask.json().cost_estimate_usd, null, 'no estimate is invented');
-        const page = await t.get(`/benchmarks/${nid}/run`, { as: alice, raw: form([['more_models', 'm'], ['harnesses', 'codex'], ['repeat', '1']]), headers: { 'content-type': 'application/x-www-form-urlencoded' } });
-        assert.ok(page.text.includes('sets no dollar limit per task'), 'the form says why it asks');
-        assert.strictEqual(runCalls().length, before, 'and nothing reached Codes');
     });
 
     await check('stop', async () => { await t.close(); codes.close(); });

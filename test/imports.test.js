@@ -297,12 +297,6 @@ function multipart(filename, bytes) {
         assert.strictEqual(runs[0].harness.name, 'inspect-ai');
     });
 
-    await check('the run page says where it came from', async () => {
-        const page = await t.get('/runs/' + runId, { as: alice });
-        assert.strictEqual(page.status, 200, page.text.slice(0, 200));
-        assert.ok(/Imported from inspect 0\.3\.286/.test(page.text), 'the label is there');
-    });
-
     await check('the file stays private to its owner', async () => {
         const mine = await t.get('/imports/' + importId + '/file', { as: alice });
         assert.strictEqual(mine.status, 200);

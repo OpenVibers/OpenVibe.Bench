@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **The public pages moved to OpenVibe.Report's AI section (2026-11-08).** `/`, `/docs`, `/benchmarks`, `/models/*`, `/compare` and the other page routes answer `301` to `https://openvibe.report/ai` counterparts; the API, MCP, render origin, badges and embeds stay on bench.openvibe.services. New public reads feed Report: `GET /api/v1/runs`, `/api/v1/overview` (with every public model and its last run) and `/api/v1/models/:model/summary` (per-benchmark and per-task medians, cost, recent runs). `/api/v1/benchmarks` now carries each benchmark's runs and last run.
 - **The Exchange arena (`chat.arena`).** A new kind, and a first-party API only OpenVibe.Exchange may call:
   `POST /api/v1/arena/rounds` builds a round from two answers the Exchange already has, and
   `POST /api/v1/arena/rounds/:id/votes` records the person's own `human_pairwise` judgement from

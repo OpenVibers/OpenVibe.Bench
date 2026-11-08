@@ -27,6 +27,9 @@ function load(env = process.env) {
         nodeEnv,
         isProduction,
         baseUrl,
+        // The Report room now owns the public Bench pages (2026-11-08): an HTML page answers 301 here. The API,
+        // MCP, render origin, badges and embeds stay on this origin.
+        reportUrl: trim(env.OV_REPORT_PUBLIC_URL || 'https://openvibe.report'),
         // "Run it yourself" on a benchmark page opens this openvibe.codes page (stage B3); unset, the page offers the API.
         codesRunUrl: env.CODES_BENCH_RUN_URL ? trim(env.CODES_BENCH_RUN_URL) : null,
         trustProxy: env.TRUST_PROXY != null ? Number(env.TRUST_PROXY) : 2,

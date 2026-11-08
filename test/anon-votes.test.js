@@ -131,21 +131,6 @@ function cookieOf(res) {
         assert.strictEqual(counted, 2, 'the refused vote was not counted');
     });
 
-    await check("Bench's own page votes without signing in", async () => {
-        const page = await t.get('/showcase/round/' + rounds[2].id);
-        assert.strictEqual(page.status, 200, page.text);
-        const cookie = cookieOf(page);
-        assert.ok(cookie.startsWith('bench_anon='), 'the page hands out the voter cookie');
-        assert.ok(page.text.includes('data-vote-form="1"'), 'the signed-out visitor gets the form');
-        assert.ok(!page.text.includes('Sign in to vote'), 'not the sign-in prompt');
-        const vote = await t.get('/showcase/round/' + rounds[2].id, {
-            method: 'POST', cookie, headers: FORM, body: 'outcome=A', ...SAME,
-        });
-        assert.strictEqual(vote.status, 302, vote.text);
-        const row = await t.ctx.s.db.maybe("SELECT voter_kind FROM bench_judgements WHERE round_id = $1 ORDER BY at DESC LIMIT 1", [rounds[2].id]);
-        assert.strictEqual(row.voter_kind, 'anon', 'the page vote is an anonymous vote');
-    });
-
     await check('a board says how many votes of each kind of voter it holds', async () => {
         const person = await t.get('/api/v1/showcase/rounds/' + rounds[0].id, { as: bob });
         assert.strictEqual(person.status, 200, person.text);

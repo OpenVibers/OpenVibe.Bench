@@ -114,11 +114,6 @@ const result = (task_id, score, extra = {}) => ({ task_id, score, cost_usd: 0.01
         assert.strictEqual(rankings.since.basis, 'tasks');
         assert.strictEqual(rankings.entries.find((e) => e.model === 'model-a').score, 20, 'only the fresh task is scored');
         assert.strictEqual(rankings.entries.find((e) => e.model === 'model-b').score, 80);
-
-        const page = await t.get(`/benchmarks/${made.id}?since=2026-03`);
-        assert.strictEqual(page.status, 200, page.text.slice(0, 300));
-        assert.ok(page.text.includes('On tasks since March 2026'), 'the page names the fresh set beside the board');
-        assert.ok(page.text.includes('All-time board'), 'and offers the all-time board');
     });
 
     await check('a held-out task never leaks, and a submitted run gets no score for it', async () => {
@@ -230,50 +225,9 @@ const result = (task_id, score, extra = {}) => ({ task_id, score, cost_usd: 0.01
         assert.strictEqual(entry.horizon.runs, 3);
         assert.ok(Math.abs(entry.horizon.horizon_minutes - 40) < 6, `horizon ${entry.horizon.horizon_minutes}`);
 
-        const page = await t.get(`/benchmarks/${made.id}?metric=horizon`);
-        assert.ok(page.text.includes('br-c-horizon'), 'the board has a horizon column');
-        assert.ok(page.text.includes('min'), 'the horizon is a number of minutes');
-        const model = await t.get('/models/model-timed');
-        assert.strictEqual(model.status, 200, model.text.slice(0, 200));
-        assert.ok(model.text.includes('reliably does about'), 'the model profile has the horizon line');
-        const thin = await t.get('/models/model-a');
-        assert.strictEqual(thin.status, 200, thin.text.slice(0, 200));
-        assert.ok(thin.text.includes('not enough runs yet'), 'below the gate the model page says so instead of a number');
     });
 
-    await check('editors estimate on the task page: sign-in, same-origin, median of three, account data', async () => {
-        const made = await create({
-            title: 'Estimate arena',
-            tasks: [baseTask('timed', { added_on: '2026-02-01' })],
-        });
-        const path = `/benchmarks/${made.id}/tasks/timed`;
-        const anon = await t.get(path);
-        assert.strictEqual(anon.status, 200, anon.text.slice(0, 200));
-        assert.ok(anon.text.includes('Sign in to estimate'), 'a signed-out reader is asked to sign in');
-        assert.strictEqual((await postForm(`/benchmarks/${made.id}/tasks/timed/estimates`, { minutes: '30', version: String(made.version) })).status, 401);
-
-        const crossSite = await t.get(`/benchmarks/${made.id}/tasks/timed/estimates`, {
-            as: alice, method: 'POST', raw: 'minutes=30', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: 'https://evil.example' },
-        });
-        assert.strictEqual(crossSite.status, 403, 'a cross-site write is refused even when signed in');
-
-        for (const [user, minutes] of [[alice, '30'], [bob, '40'], [carol, '50']]) {
-            const res = await postForm(`/benchmarks/${made.id}/tasks/timed/estimates`, { minutes, version: String(made.version) }, user);
-            assert.strictEqual(res.status, 303, res.text.slice(0, 300));
-        }
-        const page = await t.get(path);
-        assert.ok(page.text.includes('median of 3 editor estimates'), page.text.slice(0, 600));
-        assert.ok(page.text.includes('40 min'), 'the median is 40 minutes');
-
-        const exported = await t.ctx.accountData.exportPart(alice.subject);
-        const file = (exported.files || []).find((f) => f.name === 'bench_task_estimates.json');
-        assert.ok(file && file.content.length === 1, 'the estimate is in the person\'s export');
-        assert.strictEqual(Number(file.content[0].minutes), 30);
-        const erased = await t.ctx.accountData.erase([alice.subject]);
-        assert.ok(Number(erased.erased.bench_task_estimates) >= 1, 'the estimate is erased with the person');
-    });
-
-    await check('the contamination badge is shown, with both numbers and their bands', async () => {
+    await check('the contamination flag is in the API with both numbers', async () => {
         const made = await create({
             title: 'Old and fresh arena',
             tasks: [
@@ -287,10 +241,6 @@ const result = (task_id, score, extra = {}) => ({ task_id, score, cost_usd: 0.01
         const board = await t.get(`/api/v1/rankings?benchmark=${made.id}&metric=score`);
         const entry = board.json().rankings.entries.find((e) => e.model === 'gpt-5');
         assert.strictEqual(entry.contamination.flag, true, JSON.stringify(entry.contamination));
-        const page = await t.get(`/benchmarks/${made.id}`);
-        assert.ok(page.text.includes('Did much better on older tasks: possibly seen in training'), 'the exact badge text');
-        assert.ok(page.text.includes('Older tasks'), 'both numbers');
-        assert.ok(page.text.includes('fresh tasks'), 'and their bands');
     });
 
     await t.close();
