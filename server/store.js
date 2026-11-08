@@ -13,6 +13,7 @@ const clipLib = require('./bench/clip');
 const clipSource = require('./bench/clip-source');
 const ratingLib = require('./rating');
 const styleLib = require('./rating/style');
+const { checkSvg } = require('./bench/svg-check');
 
 const BASE_ELO = ratingLib.BASE_ELO;
 const K = 32;
@@ -402,6 +403,12 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         return await s.tx(async () => {
             const r = await db.maybe('SELECT * FROM bench_rounds WHERE id = $1 FOR UPDATE', [String(roundId || '')]);
             if (!r) throw new BenchError(404, 'bench.round_not_found', 'No such Bench round.');
+            if (r.kind_id === 'design.svg' && !error) {
+                const task = await db.maybe('SELECT prompt FROM bench_tasks WHERE id = $1', [r.task_id]);
+                const check = checkSvg(payload && payload.svg, task && task.prompt);
+                uiCheck = { ...(uiCheck && typeof uiCheck === 'object' && !Array.isArray(uiCheck) ? uiCheck : {}), svg_layout: check };
+                if (check.status === 'failed') error = 'SVG layout check failed: ' + check.issues.join(', ');
+            }
             if (r.kind_id === 'live.clip') {
                 // A clip pick: its shape checked, and the policy that chose it pinned on the entry (route), never rewritten.
                 const v = clipLib.validateEntry(payload, { now: s.now() });

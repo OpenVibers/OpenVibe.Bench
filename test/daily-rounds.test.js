@@ -7,6 +7,7 @@
 const assert = require('assert');
 const { boot, check, done } = require('./helpers/boot');
 const { DAILY_KIND_IDS, DAILY_PROMPTS } = require('../server/bench/daily-prompts');
+const { separateIcons } = require('../server/bench/svg-check');
 
 const CLOCK = Date.parse('2026-11-01T09:00:00.000Z');
 const clock = () => CLOCK;
@@ -24,6 +25,14 @@ const clock = () => CLOCK;
 
     const t = await boot({
         now: clock,
+        aiOptions: { textFor: (body) => {
+            const svgBrief = DAILY_PROMPTS['design.svg'].find((p) => String(body.prompt || '').includes(p));
+            if (svgBrief) {
+                const count = separateIcons(svgBrief) || 1;
+                return `<svg viewBox="0 0 ${count * 28} 24">${Array.from({ length: count }, (_, i) => `<g transform="translate(${i * 28} 0)"><path d="M2 2 L20 20"/></g>`).join('')}</svg>`;
+            }
+            return '<!doctype html><html><body><h1>Generated output</h1></body></html>';
+        } },
         env: {
             BENCH_DAILY_ROUNDS: '1',
             BENCH_DAILY_ROUNDS_IN_DRILL: '1',

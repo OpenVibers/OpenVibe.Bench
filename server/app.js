@@ -43,7 +43,7 @@ const { createDailyRounds } = require('./bench/daily');
 const { createBattlePages } = require('./http/battle');
 const { createRatingsPages } = require('./http/ratings');
 const { createRenderRoutes } = require('./http/render');
-const { seedShowcaseTasks } = require('./bench/seed-tasks');
+const { seedShowcaseTasks, auditSvgEntries } = require('./bench/seed-tasks');
 const { createRegistry } = require('./bench/registry');
 const { createLauncher } = require('./bench/launch');
 const { seedBenchmarks } = require('./bench/seed-benchmarks');
@@ -97,6 +97,7 @@ async function createApp(opts = {}) {
 
     await bench.seedKinds();
     try { await seedShowcaseTasks(s, bench); } catch (err) { log.warn('[OpenVibe.Bench] showcase tasks not seeded:', (err && err.message) || err); }
+    try { await auditSvgEntries(s); } catch (err) { log.warn('[OpenVibe.Bench] SVG entries not audited:', (err && err.message) || err); }
     try { await seedBenchmarks(s, registry); } catch (err) { log.warn('[OpenVibe.Bench] showcase benchmarks not seeded:', (err && err.message) || err); }
 
     const accountData = accountDataLib.create({ db: s.db, log });
