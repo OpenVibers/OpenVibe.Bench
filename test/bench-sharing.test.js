@@ -30,8 +30,6 @@ const { boot, check, done } = require('./helpers/boot');
         assert.deepStrictEqual(s.owner_subject, { type: 'user', id: alice.subject });
         assert.strictEqual((await t.get(`/api/v1/benchmarks/${id}`, { as: alice })).status, 200);
         assert.strictEqual((await t.get(`/api/v1/benchmarks/${id}`, { as: bob })).status, 404);
-        assert.strictEqual((await t.get(`/benchmarks/${id}`, { as: bob })).status, 404);
-        assert.strictEqual((await t.get(`/benchmarks/${id}`, { as: alice })).status, 200);
     });
 
     await check('Specific people: the named person reads it; a stranger gets 404 and the page never leaks the title', async () => {
@@ -40,11 +38,9 @@ const { boot, check, done } = require('./helpers/boot');
         assert.strictEqual(put.status, 200, put.text);
         assert.strictEqual(put.json().audience, 'people');
         assert.strictEqual((await t.get(`/api/v1/benchmarks/${id}`, { as: bob })).status, 200);
-        assert.strictEqual((await t.get(`/benchmarks/${id}`, { as: bob })).status, 200);
-        const stranger = await t.get(`/benchmarks/${id}`, { as: sam });
+        const stranger = await t.get(`/api/v1/benchmarks/${id}`, { as: sam });
         assert.strictEqual(stranger.status, 404);
         assert.ok(!stranger.text.includes('Board pack bench'));
-        assert.strictEqual((await t.get(`/api/v1/benchmarks/${id}`, { as: sam })).status, 404);
         assert.strictEqual((await t.get(`/api/v1/benchmark/${id}/share`, { as: sam })).status, 404, 'the sheet is the owner’s');
     });
 
@@ -54,12 +50,11 @@ const { boot, check, done } = require('./helpers/boot');
         assert.strictEqual((await row(id)).audience, 'public');
         assert.strictEqual((await t.ctx.s.db.maybe('SELECT visibility FROM bench_benchmarks WHERE id = $1', [id])).visibility, 'public');
         assert.strictEqual((await t.get(`/api/v1/benchmarks/${id}`)).status, 200);
-        const list = (await t.get('/benchmarks')).text;
-        assert.ok(list.includes('Going public'));
+        assert.ok((await t.get('/api/v1/benchmarks')).json().benchmarks.some((b) => b.id === id), 'in the API list');
         assert.strictEqual((await putShare(id, { audience: 'private' })).status, 200);
         assert.strictEqual((await t.get(`/api/v1/benchmarks/${id}`)).status, 404);
-        assert.ok(!(await t.get('/benchmarks')).text.includes('Going public'));
-        assert.strictEqual((await t.get(`/benchmarks/${id}`, { as: alice })).status, 200, 'the owner still reads it');
+        assert.ok(!(await t.get('/api/v1/benchmarks')).json().benchmarks.some((b) => b.id === id), 'out of the API list');
+        assert.strictEqual((await t.get(`/api/v1/benchmarks/${id}`, { as: alice })).status, 200, 'the owner still reads it');
     });
 
     await check('the sheet lists the members to the owner, and the old form keeps the row in step', async () => {
@@ -69,10 +64,10 @@ const { boot, check, done } = require('./helpers/boot');
         assert.strictEqual(mine.status, 200);
         assert.strictEqual(mine.json().members[0].username, 'sam');
         assert.strictEqual(mine.json().you.role, 'owner');
-        // The registry's own form (POST /benchmarks/:id/share) is the old way to change visibility.
-        const form = await t.get(`/benchmarks/${id}/share`, { as: alice, body: 'visibility=public', headers: { 'content-type': 'application/x-www-form-urlencoded', origin: 'https://bench.openvibe.services' } });
-        assert.ok([200, 303].includes(form.status), form.text.slice(0, 200));
+        // The API is the one way now that the HTML pages are gone; it keeps the old visibility column in step.
+        assert.strictEqual((await putShare(id, { audience: 'public' })).status, 200);
         assert.strictEqual((await row(id)).audience, 'public');
+        assert.strictEqual((await t.ctx.s.db.maybe('SELECT visibility FROM bench_benchmarks WHERE id = $1', [id])).visibility, 'public');
     });
 
     await done();

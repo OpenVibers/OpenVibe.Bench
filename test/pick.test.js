@@ -77,23 +77,6 @@ const { KINDS } = require('../server/kinds');
         }
     }
 
-    await check('the pick page answers from the data, without JavaScript', async () => {
-        const r = await t.get('/pick?kind=design.page');
-        assert.strictEqual(r.status, 200, r.text.slice(0, 300));
-        assert.ok(r.text.includes('method="get"'), 'the form is a GET');
-        assert.ok(r.text.includes('pk-table'), 'the frontier table');
-        assert.ok(r.text.includes('alpha-1'), 'the top model');
-        assert.ok(r.text.includes('because no other model beats it'), 'why the top pick is first');
-        assert.ok(r.text.includes('pk-card') || r.text.includes('pk-shot'), 'a sample output');
-    });
-
-    await check('a model with fewer than three runs is greyed and says so', async () => {
-        const r = await t.get('/pick?kind=design.page');
-        assert.ok(r.text.includes('beta-2'), 'the thin model is shown');
-        assert.ok(r.text.includes('too few runs'), 'it says the data is thin');
-        assert.ok(/class="pk-thin"/.test(r.text), 'and it is greyed');
-    });
-
     await check('the API answers the same thing as the page', async () => {
         const api = await t.get('/api/v1/pick?kind=design.page');
         assert.strictEqual(api.status, 200, api.text.slice(0, 300));
@@ -120,21 +103,12 @@ const { KINDS } = require('../server/kinds');
         assert.ok(json.rows.every((r) => !r.median_ms || r.median_ms <= json.filters.fast_cap_ms), 'only the quick ones');
     });
 
-    await check('the words set the controls, and the page says how it read them', async () => {
-        const r = await t.get('/pick?q=' + encodeURIComponent('landing page under 2 cents, fast'));
-        assert.strictEqual(r.status, 200);
-        assert.ok(r.text.includes('design.page'), 'the kind it read');
+    await check('the words set the controls, and the API says how it read them', async () => {
         const json = (await t.get('/api/v1/pick?q=' + encodeURIComponent('landing page under 2 cents, fast'))).json();
         assert.strictEqual(json.controls.kind, 'design.page');
         assert.strictEqual(json.controls.max_cost, 0.02);
         assert.strictEqual(json.controls.fast, true);
         assert.ok(json.controls.notes.length >= 3, 'it says what it read');
-    });
-
-    await check('a kind with nothing in it says so, and invents nothing', async () => {
-        const r = await t.get('/pick?kind=games.three');
-        assert.strictEqual(r.status, 200);
-        assert.ok(r.text.includes('Nothing to pick yet'), 'the empty answer');
     });
 
     await t.close();

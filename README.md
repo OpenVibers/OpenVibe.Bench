@@ -4,6 +4,8 @@ The shared AI benchmark and comparison engine for every OpenVibe room (plan 2026
 
 Bench is the comparative-evaluation authority. AI stays the run authority, Report the analytics authority, Route the learner, and each room keeps its own pages. Bench owns kinds, tasks, pinned rounds, entries, judgements, ratings, boards, the open dataset and private evals.
 
+**The public pages moved to OpenVibe.Report's AI section (2026-11-08):** `https://openvibe.report/ai`, `/ai/<benchmark>` and `/ai/models/<model>`. This origin's old HTML pages answer `301` there; its API, MCP endpoint, render origin, badges and embeds stay here.
+
 - Service id: `bench`
 - Port: `5230`
 - Public origin: `https://bench.openvibe.services`
@@ -29,7 +31,9 @@ Tests use a temporary PGlite database, an in-process mock Network and a fake AI;
 
 ## API
 
-JSON under `/api/v1`; errors are `application/problem+json`. See `/docs` for the full list. The MCP endpoint is `POST /mcp`.
+JSON under `/api/v1`; errors are `application/problem+json`. The full list is in `/openapi.json` and Report's `/ai/method`. The MCP endpoint is `POST /mcp`.
+
+The public reads Report's AI pages use are `GET /api/v1/overview`, `GET /api/v1/benchmarks`, `GET /api/v1/rankings`, `GET /api/v1/runs`, `GET /api/v1/models/:model/summary` and `GET /api/v1/runs/:id`; the long list is at `/openapi.json` and in Report's method page.
 
 <!-- versions:start -->
 - openvibe-contracts: v0.338.0

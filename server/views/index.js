@@ -82,6 +82,9 @@ ${ep('POST', '/api/v1/benchmarks/:id/share', '<code>{ visibility: "private" | "u
 ${ep('POST', '/api/v1/runs', 'Publish a run: <code>{ benchmark: "bmk_…@N", model, provider, harness: { name, version }, executor, tasks: [{ task_id, score, cost_usd, ms, tokens, artifacts }], score, cost_usd, ms, tokens }</code>.')}
 ${ep('GET', '/api/v1/runs/:id', 'A run with its tasks; <code>/api/v1/compare?runs=a,b</code> puts up to four side by side.')}
 ${ep('GET', '/api/v1/rankings?benchmark=&metric=score|value|speed|consistency|horizon&harness=&since=', 'Medians per model over verified runs; value is score per dollar, speed is score per minute, horizon is the 50% human-time task length. since=YYYY-MM scores only tasks added in or after that month.')}
+${ep('GET', '/api/v1/runs?benchmark=&model=&kind=&limit=&offset=', 'Public runs newest first, with their score, cost, time and provenance. The pages at openvibe.report/ai read this list.')}
+${ep('GET', '/api/v1/models/:model/summary', 'One model’s verified record: per benchmark, its task-level best and worst, every public run and the total cost.')}
+${ep('GET', '/api/v1/overview', 'Public counts (benchmarks, tasks, runs, models), every public model with its last run, and the newest runs.')}
 ${ep('GET', '/api/v1/percentile?benchmark=&model=&score=', 'Where a score sits among a model’s verified runs.')}
 </dl></section>
 <section><h2>MCP</h2><p class="bm-fine"><code>POST /mcp</code> exposes <code>bench.list_kinds</code>, <code>bench.start_round</code>, <code>bench.next_pair</code>, <code>bench.cast_judgement</code>, <code>bench.get_board</code> and <code>bench.run_eval</code>.</p></section>

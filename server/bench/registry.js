@@ -996,6 +996,7 @@ function createRegistry(s, { log = console, sharing = null } = {}) {
                 cost_per_solved: medScore > 0 && medCost > 0 ? Math.round((medCost / (medScore / 100)) * 1e6) / 1e6 : null,
                 contamination: contaminationOf(model, list.map((item) => item.run)),
                 horizon: horizonOfModel(list.map((item) => item.run)),
+                last_run: list.reduce((at, item) => (!at || item.run.created_at > at ? item.run.created_at : at), null),
             };
             entries.push(entry);
         }
@@ -1191,7 +1192,7 @@ function createRegistry(s, { log = console, sharing = null } = {}) {
         return new Map(rows.map((r) => [r.benchmark_id, num(r.n)]));
     }
 
-    async function listRuns({ benchmark = null, model = null, createdBy = null, verifiedOnly = false, publicOnly = false, limit = 20 } = {}) {
+    async function listRuns({ benchmark = null, model = null, kind = null, createdBy = null, verifiedOnly = false, publicOnly = false, limit = 20, offset = 0 } = {}) {
         const where = [];
         const params = [];
         const add = (clause, value) => { params.push(value); where.push(clause.replace('?', `$${params.length}`)); };
@@ -1202,13 +1203,16 @@ function createRegistry(s, { log = console, sharing = null } = {}) {
             if (ref.version != null) add('benchmark_version = ?', ref.version);
         }
         if (model) add('model = ?', String(model));
+        if (kind) add("benchmark_id IN (SELECT id FROM bench_benchmarks WHERE kind = ? AND visibility = 'public')", String(kind));
         if (createdBy) add('created_by = ?', String(createdBy));
         if (verifiedOnly) where.push("provenance = 'verified'");
         // A listing across benchmarks (a model's page) shows the public benchmarks' runs only.
         if (publicOnly) where.push("benchmark_id IN (SELECT id FROM bench_benchmarks WHERE visibility = 'public')");
         params.push(Math.min(100, Math.max(1, Number(limit) || 20)));
+        const limitAt = params.length;
+        params.push(Math.max(0, Number(offset) || 0));
         const rows = await db.many(
-            `SELECT * FROM bench_runs ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY created_at DESC, id DESC LIMIT $${params.length}`,
+            `SELECT * FROM bench_runs ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY created_at DESC, id DESC LIMIT $${limitAt} OFFSET $${params.length}`,
             params);
         return rows.map((row) => wireRun(row));
     }
@@ -1248,10 +1252,125 @@ function createRegistry(s, { log = console, sharing = null } = {}) {
         return { model: String(model || ''), runs: rows.length, benchmarks: out };
     }
 
+    /**
+     * Activity per public benchmark: how many runs it has and when its newest one landed. The overview and the
+     * benchmark list read this; a benchmark with no run has no date, never a made-up one.
+     */
+    async function runActivity() {
+        const rows = await db.many(
+            "SELECT r.benchmark_id, COUNT(*)::int AS runs, MAX(r.created_at) AS last_run"
+            + " FROM bench_runs r JOIN bench_benchmarks b ON b.id = r.benchmark_id"
+            + " WHERE b.visibility = 'public' GROUP BY r.benchmark_id");
+        return new Map(rows.map((r) => [r.benchmark_id, { runs: num(r.runs), last_run: r.last_run ? iso(r.last_run) : null }]));
+    }
+
+    /** Public totals for the AI overview and its method page. Counts only; no model names, no invented numbers. */
+    async function overview() {
+        const [benchmarks, activity, recent] = await Promise.all([
+            listBenchmarks({ limit: 500 }),
+            runActivity(),
+            listRuns({ publicOnly: true, limit: 12 }),
+        ]);
+        const publicList = benchmarks.filter((b) => b.visibility === 'public');
+        for (const b of publicList) {
+            const a = activity.get(b.id);
+            b.runs = a ? a.runs : 0;
+            b.last_run = a ? a.last_run : null;
+        }
+        const totals = await db.maybe(
+            "SELECT COUNT(*)::int AS runs, COUNT(DISTINCT r.model)::int AS models, MAX(r.created_at) AS last_run"
+            + " FROM bench_runs r JOIN bench_benchmarks b ON b.id = r.benchmark_id WHERE b.visibility = 'public'");
+        const tasks = await db.maybe(
+            'SELECT COALESCE(SUM(jsonb_array_length(v.definition->\'tasks\')), 0)::int AS tasks'
+            + ' FROM bench_benchmark_versions v JOIN bench_benchmarks b ON b.id = v.benchmark_id'
+            + " WHERE b.visibility = 'public' AND v.version = b.latest_version");
+        const modelRows = await db.many(
+            'SELECT r.model, COUNT(*)::int AS runs, MAX(r.created_at) AS last_run'
+            + ' FROM bench_runs r JOIN bench_benchmarks b ON b.id = r.benchmark_id'
+            + " WHERE b.visibility = 'public' GROUP BY r.model ORDER BY MAX(r.created_at) DESC, r.model");
+        return {
+            kinds: require('../kinds').KINDS.length,
+            benchmarks: publicList.length,
+            tasks: num(tasks && tasks.tasks, 0),
+            runs: num(totals && totals.runs, 0),
+            models: num(totals && totals.models, 0),
+            last_run: totals && totals.last_run ? iso(totals.last_run) : null,
+            list: publicList.map((b) => ({
+                id: b.id, title: b.title, kind: b.kind, description: b.description,
+                latest_version: b.latest_version, runs: b.runs, last_run: b.last_run,
+            })),
+            model_list: modelRows.map((r) => ({ model: r.model, runs: num(r.runs), last_run: r.last_run ? iso(r.last_run) : null })),
+            recent,
+        };
+    }
+
+    /**
+     * One model's public record: what the verified runs say per benchmark, its task-level best and worst, every
+     * public run newest first, and the money and time those runs cost. A submitted run is labelled and never mixed
+     * into the medians.
+     */
+    async function modelDetail(model) {
+        const name = String(model || '');
+        const summary = await modelSummary(name);
+        const runs = await listRuns({ model: name, publicOnly: true, limit: 100 });
+        const lastByBenchmark = new Map();
+        for (const run of runs) {
+            if (!lastByBenchmark.has(run.benchmark_id)) lastByBenchmark.set(run.benchmark_id, run.created_at);
+        }
+        for (const b of summary.benchmarks) b.last_run = lastByBenchmark.get(b.benchmark_id) || null;
+
+        const taskRows = await db.many(
+            "SELECT r.benchmark_id, r.created_at, t.task_id, t.score"
+            + " FROM bench_run_tasks t JOIN bench_runs r ON r.id = t.run_id"
+            + " JOIN bench_benchmarks b ON b.id = r.benchmark_id"
+            + " WHERE r.model = $1 AND r.provenance = 'verified' AND b.visibility = 'public'"
+            + ' ORDER BY t.task_id, r.created_at', [name]);
+        const groups = new Map();
+        for (const row of taskRows) {
+            const key = `${row.benchmark_id}:${row.task_id}`;
+            if (!groups.has(key)) groups.set(key, { benchmark_id: row.benchmark_id, task_id: String(row.task_id), scores: [], last_run: null });
+            const g = groups.get(key);
+            g.scores.push(num(row.score));
+            const at = iso(row.created_at);
+            if (!g.last_run || at > g.last_run) g.last_run = at;
+        }
+        const titles = new Map(summary.benchmarks.map((b) => [b.benchmark_id, b.title]));
+        const tasks = [...groups.values()].map((g) => ({
+            benchmark_id: g.benchmark_id,
+            benchmark_title: titles.get(g.benchmark_id) || g.benchmark_id,
+            task_id: g.task_id,
+            runs: g.scores.length,
+            score: Math.round(median(g.scores) * 1000) / 1000,
+            best: Math.round(Math.max(...g.scores) * 1000) / 1000,
+            worst: Math.round(Math.min(...g.scores) * 1000) / 1000,
+            last_run: g.last_run,
+        })).sort((a, b) => b.score - a.score || a.task_id.localeCompare(b.task_id));
+
+        const totals = await db.maybe(
+            "SELECT COUNT(*)::int AS runs, COALESCE(SUM(r.cost_usd), 0)::numeric AS cost,"
+            + " COALESCE(SUM(r.ms), 0)::int AS ms, COALESCE(SUM(r.tokens), 0)::int AS tokens,"
+            + " MAX(r.created_at) AS last_run"
+            + " FROM bench_runs r JOIN bench_benchmarks b ON b.id = r.benchmark_id"
+            + " WHERE r.model = $1 AND r.provenance = 'verified' AND b.visibility = 'public'", [name]);
+        const round = (v, p) => (v == null ? null : Math.round(num(v) * p) / p);
+        return {
+            ...summary,
+            last_run: totals && totals.last_run ? iso(totals.last_run) : null,
+            total_cost_usd: round(totals && totals.cost, 1e6),
+            total_ms: round(totals && totals.ms, 1),
+            total_tokens: round(totals && totals.tokens, 1),
+            best_task: tasks.length ? tasks[0] : null,
+            worst_task: tasks.length ? tasks[tasks.length - 1] : null,
+            tasks,
+            recent_runs: runs,
+        };
+    }
+
     return {
         createBenchmark, getBenchmark, getVersion, latestVersion, getDefinition, saveDraft, freezeVersion,
         forkBenchmark, setVisibility, findShared, publicDatasetLines,
         listBenchmarks, publishRun, getRun, compareRuns, rankings, percentile, listRuns, modelSummary, runCounts,
+        runActivity, overview, modelDetail,
         taskEstimateSummary, addTaskEstimate, modelHorizon,
     };
 }

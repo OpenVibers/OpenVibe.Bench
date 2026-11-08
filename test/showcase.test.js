@@ -180,18 +180,11 @@ const HOSTILE = [
         assert.ok(pair.slots[0].wrapper_url.startsWith(renderLib.RENDER_ORIGIN + '/render/w/'), 'the wrapper is on the render origin: ' + pair.slots[0].wrapper_url);
     });
 
-    await check('the compare page is blind, and the vote reveals', async () => {
+    await check('a round is blind, and the vote reveals', async () => {
         const before = await t.get('/api/v1/showcase/rounds/' + roundId, { as: bob });
         assert.strictEqual(before.status, 200, before.text);
         assert.strictEqual(before.json().round.revealed, false);
         assert.strictEqual(before.json().round.slots[0].model, undefined);
-
-        const page = await t.get('/showcase/round/' + roundId, { as: bob });
-        assert.strictEqual(page.status, 200, page.text);
-        assert.ok(page.text.includes('data-slot="A"'), 'pane A');
-        assert.ok(page.text.includes('data-slot="B"'), 'pane B');
-        assert.ok(page.text.includes('data-vote-form="1"'), 'the vote form');
-        assert.ok(!page.text.includes('alpha-1'), 'no model name before the vote');
 
         const vote = await t.get('/api/v1/showcase/rounds/' + roundId + '/vote', { as: bob, json: { outcome: 'A' } });
         assert.strictEqual(vote.status, 201, vote.text);
