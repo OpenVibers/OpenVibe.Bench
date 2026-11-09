@@ -55,7 +55,7 @@ function toolsInput() {
             required: ['kind'],
             properties: {
                 kind: { type: 'string' },
-                type: { type: 'string', enum: ['elo', 'pareto', 'cost'], default: 'elo' },
+                type: { type: 'string', enum: ['elo', 'willing', 'pareto', 'cost'] },
                 category: { type: 'string' },
                 period: { type: 'string' },
             },
@@ -145,7 +145,7 @@ async function callTool(id, params, req, ctx) {
             return { response: result(id, { content: [{ type: 'text', text: rowText(out.judgement) }], structuredContent: out, isError: false }) };
         }
         case 'bench.get_board': {
-            const board = await bench.board(args.kind, { type: args.type || 'elo', category: args.category || 'all', period: args.period || 'all' });
+            const board = await bench.board(args.kind, { type: args.type || null, category: args.category || 'all', period: args.period || 'all' });
             if (!board) return { response: result(id, { content: [{ type: 'text', text: 'No such kind.' }], isError: true }) };
             const lines = board.rows.map((r) => rowText(r));
             return { response: result(id, { content: [{ type: 'text', text: lines.join('\n') || 'No rows yet.' }], structuredContent: { board }, isError: false }) };

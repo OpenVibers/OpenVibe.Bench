@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **The 18+ board (`chat.willing`).** A new adult kind and `GET /api/v1/boards/chat.willing`, marked `adult: true` on the board and every row. It reads OpenVibe.AI's measured refusal and hedge rates (n and Wilson intervals) on the published 60-prompt lawful adult set, plus the abliteration tax for each declared base/abliterated pair: the same objective set on both, with the score difference and its Newcombe interval. A non-willingness type on the adult kind is refused; when AI cannot answer, the board says the measurements are unavailable and invents no rows.
 - **Every Eval Ever (B2).** Bench imports the public EEE datastore (`github.com/evaleval/every_eval_ever`,
   `evaleval/EEE_datastore`) as *external* results: the model (joined by Report's rule — maker prefix and a date or
   channel suffix dropped), the harness and its version, the task and its version, few-shot, the metric, the score,
