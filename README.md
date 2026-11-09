@@ -37,6 +37,6 @@ The public reads Report's AI pages use are `GET /api/v1/overview`, `GET /api/v1/
 
 <!-- versions:start -->
 - openvibe-contracts: v0.373.0
-- openvibe-sdk: v0.125.0
+- openvibe-sdk: v0.133.0
 - openvibe-shared: v4.179.0
 <!-- versions:end -->
