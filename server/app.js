@@ -81,14 +81,14 @@ async function createApp(opts = {}) {
     const evidenceConfig = await createVariantEvidenceConfig({ db: s.db, principal, config, env: opts.env || process.env, log });
     Object.defineProperty(config.bench, 'variantEvidence', { enumerable: true, configurable: true, get: () => evidenceConfig.get('enabled') });
 
-    const bench = opts.bench || createStore(s, { config, log, random: opts.random });
+    const ai = opts.benchAi || createBenchAi({ config, fetchImpl, log });
+    const bench = opts.bench || createStore(s, { config, log, random: opts.random, ai });
     const { createSharing, describeRef } = require('./sharing');
     const sharing = opts.sharing || createSharing({ db: s.db, config, fetchImpl, log });
     const registry = opts.registry || createRegistry(s, { log, sharing });
     // B12: bringing your own results, and the operator's mirror.
     const imports = require('./bench/imports').createImports({ s, registry, log });
     const mirror = require('./bench/mirror').createMirror({ s, registry, fetchImpl, log });
-    const ai = opts.benchAi || createBenchAi({ config, fetchImpl, log });
     const jobs = createBenchJobs({ s, bench, ai, config, log });
     // The signed-out voter (the cookie, the relay header and the daily caps) and the daily rounds job.
     const anon = createAnon({ s, config, log });

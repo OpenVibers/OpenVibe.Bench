@@ -12,7 +12,7 @@
  *   POST   /rounds/:id/entries        (a room submits outside entries with a service token)
  *   GET    /judgements/next
  *   POST   /rounds/:id/judgements
- *   GET    /boards/:kindId?type=elo|pareto|cost&voters=people|anon
+ *   GET    /boards/:kindId?type=elo|willing|pareto|cost&voters=people|anon
  *   GET    /models/:model
  *   GET    /datasets/:kindId.jsonl
  *   POST   /evals
@@ -291,15 +291,20 @@ function createApi(ctx) {
     // ── Boards, models, datasets ────────────────────────────
     r.get('/boards/:kindId', async (req, res) => {
         try {
-            const type = typeof req.query.type === 'string' && req.query.type ? req.query.type : 'elo';
-            const board = await bench.board(String(req.params.kindId || ''), {
+            const kindId = String(req.params.kindId || '');
+            const type = typeof req.query.type === 'string' && req.query.type ? req.query.type : null;
+            const board = await bench.board(kindId, {
                 type,
                 category: typeof req.query.category === 'string' ? req.query.category : 'all',
                 period: typeof req.query.period === 'string' ? req.query.period : 'all',
                 // 'people' shows the signed-in votes alone, 'anon' the anonymous ones alone.
                 voters: typeof req.query.voters === 'string' ? req.query.voters : null,
             });
-            if (!board) return problem(res, 404, 'bench.kind_not_found', 'No such kind.');
+            if (!board) {
+                const kind = await bench.getKind(kindId);
+                if (kind && kind.schema && kind.schema.adult === true) return problem(res, 422, 'bench.board_type_unsupported', 'The 18+ board is willingness only: use type=willing, or omit type.');
+                return problem(res, 404, 'bench.kind_not_found', 'No such kind.');
+            }
             res.set('Cache-Control', 'public, max-age=30');
             return res.json({ board });
         } catch (err) { return failed(res, err); }
