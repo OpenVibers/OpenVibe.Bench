@@ -81,7 +81,8 @@ async function createApp(opts = {}) {
     const evidenceConfig = await createVariantEvidenceConfig({ db: s.db, principal, config, env: opts.env || process.env, log });
     Object.defineProperty(config.bench, 'variantEvidence', { enumerable: true, configurable: true, get: () => evidenceConfig.get('enabled') });
 
-    const bench = opts.bench || createStore(s, { config, log, random: opts.random });
+    const ai = opts.benchAi || createBenchAi({ config, fetchImpl, log });
+    const bench = opts.bench || createStore(s, { config, log, random: opts.random, ai });
     const { createSharing, describeRef } = require('./sharing');
     const sharing = opts.sharing || createSharing({ db: s.db, config, fetchImpl, log });
     const registry = opts.registry || createRegistry(s, { log, sharing });
@@ -91,7 +92,6 @@ async function createApp(opts = {}) {
     // B2: the external EEE records and the exporter of Bench's own runs, plus the weekly import job.
     const eee = require('./bench/eee').createEee({ s, registry, fetchImpl, log, config });
     const eeeSync = require('./bench/eee-sync').createEeeSync({ eee, config, log });
-    const ai = opts.benchAi || createBenchAi({ config, fetchImpl, log });
     const jobs = createBenchJobs({ s, bench, ai, config, log });
     // The signed-out voter (the cookie, the relay header and the daily caps) and the daily rounds job.
     const anon = createAnon({ s, config, log });

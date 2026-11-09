@@ -264,7 +264,17 @@ function createBenchAi({ config, fetchImpl = globalThis.fetch, log = console }) 
         };
     }
 
-    return { enabled, slots, slotPlan, offeredModels, rankOffers, generate, systemPrompt, maxTokensFor };
+    /** The 18+ board's measured willingness rates, from OpenVibe.AI's public read API. */
+    async function willingness() {
+        return call('GET', '/api/v1/exchange/willingness');
+    }
+
+    /** The abliteration tax's measured pairs, from the same service. */
+    async function abliterationTax() {
+        return call('GET', '/api/v1/exchange/abliteration-tax');
+    }
+
+    return { enabled, slots, slotPlan, offeredModels, rankOffers, generate, systemPrompt, maxTokensFor, willingness, abliterationTax };
 }
 
 module.exports = { createBenchAi, BenchAiError };

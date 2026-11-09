@@ -15,6 +15,7 @@ const ratingLib = require('./rating');
 const styleLib = require('./rating/style');
 const statsLib = require('./rating/stats');
 const { checkSvg } = require('./bench/svg-check');
+const { createWillingReader } = require('./bench/willing');
 
 const BASE_ELO = ratingLib.BASE_ELO;
 const K = 32;
@@ -202,8 +203,9 @@ function ratingCi(elo, wins, losses, ties) {
     };
 }
 
-function createStore(s, { log = console, random = Math.random, config = null } = {}) {
+function createStore(s, { log = console, random = Math.random, config = null, ai = null } = {}) {
     const db = s.db;
+    const willingReader = createWillingReader({ ai, log, now: s.now });
     // The kind boards' fits are pure functions of the games, so a board asks for the same fit only once per
     // vote set. The key changes with the number of games, and a short TTL covers a vote that lands mid-request.
     const boardFits = new Map();
@@ -907,18 +909,32 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         return out;
     }
 
-    async function board(kindId, { type = 'elo', category = CATEGORY_DEFAULT, period = 'all', voters = null } = {}) {
+    async function board(kindId, { type = null, category = CATEGORY_DEFAULT, period = 'all', voters = null } = {}) {
         const kind = await getKind(kindId);
         if (!kind || isPrivateKind(kind.id)) return null;
+        const adultKind = Boolean(kind.schema && kind.schema.adult === true);
+        const wanted = type || (adultKind ? 'willing' : 'elo');
+        if (wanted === 'willing') {
+            if (!adultKind) return null;
+            const data = await willingReader.read();
+            return {
+                kind_id: kindId, category: CATEGORY_DEFAULT, period, type: 'willing', adult: true,
+                prompt_set: data.prompt_set, prompts: data.prompts, measured_on: data.measured_on,
+                rows: data.rows, abliteration: data.abliteration,
+                unavailable: data.unavailable, error: data.error, note: data.note,
+                voters: await voterCounts(kindId),
+            };
+        }
+        if (adultKind) return null;
         const cat = categoryOf(voters, category);
         const cost = await costStats(kindId);
         const pass = await passRate(kindId);
         const eloRows = await boardElo(kindId, cat);
 
         let rows;
-        if (type === 'elo') {
+        if (wanted === 'elo') {
             rows = eloRows.map((r) => ({ ...r, median_cost_usd: num(cost.get(r.subject)?.median_cost), median_ms: num(cost.get(r.subject)?.median_ms) }));
-        } else if (type === 'pareto') {
+        } else if (wanted === 'pareto') {
             const subjects = await subjectsFor(kindId);
             rows = subjects.map((subject) => {
                 const e = eloRows.find((x) => x.subject === subject) || {};
@@ -928,7 +944,7 @@ function createStore(s, { log = console, random = Math.random, config = null } =
                 return { subject, quality, win_rate: num(e.win_rate) || 0, pass_rate: p ? (num(p.trials) ? num(p.passed) / num(p.trials) : 0) : 0, cost: medianCost, median_cost_usd: medianCost, median_ms: num(cost.get(subject)?.median_ms), provisional: num(e.games) < 10 };
             });
             rows = ratingLib.pareto(rows, { x: 'quality', y: 'cost' });
-        } else if (type === 'cost') {
+        } else if (wanted === 'cost') {
             rows = [...cost.values()].map((r) => {
                 const solved = num(pass.get(r.model)?.passed) || num(r.usable) || 0;
                 const totalCost = num(r.total_cost);
@@ -951,11 +967,11 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         const allEloRows = cat === CATEGORY_DEFAULT ? eloRows : await boardElo(kindId);
         const [voterKinds, categories, index, holdout] = await Promise.all([
             voterCounts(kindId),
-            type === 'elo' ? categoryBoards(kindId) : Promise.resolve(undefined),
+            wanted === 'elo' ? categoryBoards(kindId) : Promise.resolve(undefined),
             kindIndex(kindId, allEloRows),
             kindHoldout(kindId),
         ]);
-        const out = { kind_id: kindId, category: cat, period, type, rows, voters: voterKinds, index, holdout };
+        const out = { kind_id: kindId, category: cat, period, type: wanted, adult: false, rows, voters: voterKinds, index, holdout };
         if (categories !== undefined) out.categories = categories;
         return out;
     }
