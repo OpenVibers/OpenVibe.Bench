@@ -7,6 +7,31 @@
 const http = require('http');
 const crypto = require('crypto');
 
+const DEFAULT_WILLINGNESS = {
+    $schema: 'exchange.willingness@1', adult: true, kind: 'chat.willing',
+    prompt_set: 'willing-2026-11-09.v1', prompts: 60, measured_on: '2026-11-09',
+    rows: [{
+        model: 'alpha-1', provider: 'acme', offer_id: 'offer_alpha', adult: true,
+        n: 60, refusals: 6, hedges: 2, refusal_rate: 0.1, hedge_rate: 0.033333,
+        refusal_ci: { lower: 0.046, upper: 0.203 }, hedge_ci: { lower: 0.009, upper: 0.115 },
+        prompt_set: 'willing-2026-11-09.v1', measured_on: '2026-11-09',
+    }],
+    note: null,
+};
+const DEFAULT_TAX = {
+    $schema: 'exchange.abliteration-tax@1', adult: true, kind: 'abliteration.tax',
+    pairs: 1, pairs_version: 'abliteration-pairs-2026-11-09.v1',
+    objective_set: 'objective-2026-11-09.v1', objective_items: 20, measured_on: '2026-11-09',
+    rows: [{
+        pair_id: 'llama-3.1-8b-instruct', family: 'llama', adult: true,
+        base: { provider: 'featherless', model: 'meta-llama/Meta-Llama-3.1-8B-Instruct', n: 20, passed: 18, rate: 0.9 },
+        abliterated: { provider: 'featherless', model: 'mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated', n: 20, passed: 15, rate: 0.75 },
+        difference: -0.15, ci: { lower: -0.408, upper: 0.128 },
+        source: 'https://huggingface.co/mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated', measured_on: '2026-11-09',
+    }],
+    note: null,
+};
+
 const DEFAULT_MODELS = [
     { provider: 'acme', model: 'alpha-1' },
     { provider: 'beta', model: 'beta-2' },
@@ -39,8 +64,8 @@ function listen(handler) {
     });
 }
 
-async function startAi({ models = DEFAULT_MODELS, costUsd = 0.0012, ms = 321, tokensIn = 120, tokensOut = 480, textFor = null } = {}) {
-    const st = { models: models.map((m) => ({ ...m })), requests: [], runCount: 0, runs: new Map(), costUsd, ms, tokensIn, tokensOut, textFor };
+async function startAi({ models = DEFAULT_MODELS, costUsd = 0.0012, ms = 321, tokensIn = 120, tokensOut = 480, textFor = null, willingness = DEFAULT_WILLINGNESS, abliterationTax = DEFAULT_TAX, willingnessStatus = 200, abliterationTaxStatus = 200 } = {}) {
+    const st = { models: models.map((m) => ({ ...m })), requests: [], runCount: 0, runs: new Map(), costUsd, ms, tokensIn, tokensOut, textFor, willingness, abliterationTax, willingnessStatus, abliterationTaxStatus };
 
     function modelFor(body) {
         const asked = body && body.route;
@@ -64,6 +89,18 @@ async function startAi({ models = DEFAULT_MODELS, costUsd = 0.0012, ms = 321, to
         }
         if (!(claims.ns || []).some((n) => n === 'ai.generate' || n === 'ai.*')) {
             return json(403, { code: 'namespace.denied', detail: 'the token needs the ai.generate namespace' });
+        }
+
+        if (url.pathname === '/api/v1/exchange/willingness' && req.method === 'GET') {
+            st.requests.push({ method: 'GET', path: url.pathname, body });
+            if (st.willingnessStatus !== 200) return json(st.willingnessStatus, { code: 'stub.unavailable', detail: 'the willingness measurements are unavailable' });
+            return json(200, st.willingness);
+        }
+
+        if (url.pathname === '/api/v1/exchange/abliteration-tax' && req.method === 'GET') {
+            st.requests.push({ method: 'GET', path: url.pathname, body });
+            if (st.abliterationTaxStatus !== 200) return json(st.abliterationTaxStatus, { code: 'stub.unavailable', detail: 'the abliteration tax is unavailable' });
+            return json(200, st.abliterationTax);
         }
 
         if (url.pathname === '/api/v1/routes' && req.method === 'GET') {
@@ -104,4 +141,4 @@ async function startAi({ models = DEFAULT_MODELS, costUsd = 0.0012, ms = 321, to
     return { url: srv.url, state: st, models: st.models, requests: st.requests, close: srv.close };
 }
 
-module.exports = { startAi, DEFAULT_MODELS };
+module.exports = { startAi, DEFAULT_MODELS, DEFAULT_WILLINGNESS, DEFAULT_TAX };
