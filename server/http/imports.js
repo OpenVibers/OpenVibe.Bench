@@ -31,7 +31,7 @@ function createImportRoutes(ctx) {
         return page(req, res, {
             index: false,
             title: 'Import a results file',
-            description: 'Bring the results file of Inspect AI, Harbor, lm-evaluation-harness or promptfoo, and see the runs it holds before they are imported.',
+            description: 'Bring the results file of Inspect AI, Harbor, HF lighteval, lm-evaluation-harness, Stanford HELM or promptfoo, and see the runs it holds before they are imported.',
             body: raw(String(views.uploadPage({ signedIn: Boolean(subject), loginUrl, imports, error: req.query.error ? String(req.query.error).slice(0, 200) : null }))),
         });
     };
@@ -42,7 +42,7 @@ function createImportRoutes(ctx) {
         const loginUrl = '/auth/login?next=' + encodeURIComponent('/imports');
         const fail = (status, error) => page(req, res, {
             index: false, title: 'Import a results file',
-            description: 'Bring a results file of Inspect AI, Harbor, lm-evaluation-harness or promptfoo.',
+            description: 'Bring a results file of Inspect AI, Harbor, HF lighteval, lm-evaluation-harness, Stanford HELM or promptfoo.',
             body: raw(String(views.uploadPage({ signedIn: Boolean(subject), loginUrl, error }))),
         }, status);
         if (!sameOrigin(req, config)) return res.status(403).type('text').send('This form only works from Bench itself.');

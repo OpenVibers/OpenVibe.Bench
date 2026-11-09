@@ -88,6 +88,9 @@ async function createApp(opts = {}) {
     // B12: bringing your own results, and the operator's mirror.
     const imports = require('./bench/imports').createImports({ s, registry, log });
     const mirror = require('./bench/mirror').createMirror({ s, registry, fetchImpl, log });
+    // B2: the external EEE records and the exporter of Bench's own runs, plus the weekly import job.
+    const eee = require('./bench/eee').createEee({ s, registry, fetchImpl, log, config });
+    const eeeSync = require('./bench/eee-sync').createEeeSync({ eee, config, log });
     const ai = opts.benchAi || createBenchAi({ config, fetchImpl, log });
     const jobs = createBenchJobs({ s, bench, ai, config, log });
     // The signed-out voter (the cookie, the relay header and the daily caps) and the daily rounds job.
@@ -111,7 +114,7 @@ async function createApp(opts = {}) {
     const ctx = {
         config, s, keys, sso, principal, bench, registry, launcher, ai, jobs, publisher, accountData, accountSend, log, fetchImpl,
         anon, daily, variantEvidence, evidenceConfig, sharing,
-        imports, mirror,
+        imports, mirror, eee, eeeSync,
         random: opts.random || Math.random,
     };
 
@@ -253,6 +256,8 @@ async function createApp(opts = {}) {
         const SHARE_PATH = /^\/api\/v1\/(?:shared-with-me$|share\/people$|[^/]+\/[^/]+\/share(?:\/|$))/;
         app.use((req, res, next) => (SHARE_PATH.test(req.path) ? shareApi(req, res, next) : next()));
     }
+    // The EEE routes come before the kind dataset route: /datasets/eee.jsonl would otherwise be read as kind 'eee'.
+    app.use(require('./http/eee').createEeeRoutes(ctx));
     app.use('/api/v1', createApi(ctx));
     app.use('/api/v1', createRegistryApi(ctx));
     app.use('/api/v1', createVariantEvidenceApi(ctx));

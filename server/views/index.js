@@ -61,6 +61,8 @@ ${ep('GET', '/api/v1/boards/:kindId?type=elo|pareto|cost&voters=people|anon&cate
 ${ep('GET', '/api/v1/models/:model', 'One model across every kind.')}
 ${ep('GET', '/api/v1/datasets/:kindId.jsonl', 'The open dataset (prompts, entries, judgements without voter ids, ratings).')}
 ${ep('GET', '/api/v1/datasets/benchmarks.jsonl', 'Every public benchmark, its visible tasks and every run, with no person id.')}
+${ep('GET', '/api/v1/datasets/eee?offset=0&limit=500', 'Bench’s public runs as Every Eval Ever <code>evaluation_run</code> records (JSONL, paged; <code>/datasets/eee.jsonl</code> is the same). Each run’s per-sample scores are at <code>/datasets/eee/runs/:id.samples.jsonl</code>.')}
+${ep('GET', '/api/v1/external/records?model=&task=&source_type=', 'The imported Every Eval Ever records: each is <code>external: true</code>, with its source, licence, harness and version, task and version, few-shot, metric and score. They never enter Bench’s ratings.')}
 </dl></section>
 <section><h2>Write</h2><dl class="bm-eps">
 ${ep('POST', '/api/v1/kinds/:kindId/tasks', '<code>{ prompt, task_class?, public? }</code>. A person or a service with bench.task.create.')}

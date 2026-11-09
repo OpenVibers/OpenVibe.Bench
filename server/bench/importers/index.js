@@ -1,27 +1,33 @@
 'use strict';
 
 /**
- * The four tools whose results a person can bring to Bench (B12): Inspect AI, Harbor, the EleutherAI
- * lm-evaluation-harness and promptfoo. The file says which one it is; when it does not, the shape of the
- * document says it.
+ * The tools whose results a person can bring to Bench: Inspect AI, Harbor, HF lighteval, the EleutherAI
+ * lm-evaluation-harness, Stanford HELM and promptfoo. The file says which one it is; when it does not, the shape of
+ * the document says it.
  */
 const { ImportError, MAX_UPLOAD_BYTES } = require('./limits');
 const inspectTool = require('./inspect');
 const harborTool = require('./harbor');
+const lightevalTool = require('./lighteval');
 const lmEvalTool = require('./lm-eval');
+const helmTool = require('./helm');
 const promptfooTool = require('./promptfoo');
 
 const TOOLS = {
     inspect: inspectTool,
     harbor: harborTool,
+    lighteval: lightevalTool,
     'lm-eval': lmEvalTool,
+    helm: helmTool,
     promptfoo: promptfooTool,
 };
 
 const TOOL_LABELS = {
     inspect: 'Inspect AI',
     harbor: 'Harbor',
+    lighteval: 'HF lighteval',
     'lm-eval': 'lm-evaluation-harness',
+    helm: 'Stanford HELM',
     promptfoo: 'promptfoo',
 };
 
@@ -31,7 +37,9 @@ function detect(doc, filename = '') {
     if (name.endsWith('.eval')) return 'inspect';
     if (inspectTool.looksLike(doc)) return 'inspect';
     if (harborTool.looksLike(doc)) return 'harbor';
+    if (lightevalTool.looksLike(doc)) return 'lighteval';
     if (lmEvalTool.looksLike(doc)) return 'lm-eval';
+    if (helmTool.looksLike(doc)) return 'helm';
     if (promptfooTool.looksLike(doc)) return 'promptfoo';
     return null;
 }
@@ -55,9 +63,10 @@ function parse(bytes, { filename = '', tool = null } = {}) {
         out.filename = String(filename || '');
         return out;
     }
-    // No tool named: look at the shape. Inspect's log is read first (it may be a zip), then the others.
+    // No tool named: look at the shape. Inspect's log is read first (it may be a zip), then the others. lighteval
+    // comes before lm-eval: both have `results`, and only lighteval has `config_general`/`config_tasks`.
     const errors = [];
-    for (const key of ['inspect', 'harbor', 'lm-eval', 'promptfoo']) {
+    for (const key of ['inspect', 'harbor', 'lighteval', 'lm-eval', 'helm', 'promptfoo']) {
         try {
             const out = TOOLS[key].parse(buf);
             out.filename = String(filename || '');
@@ -68,7 +77,7 @@ function parse(bytes, { filename = '', tool = null } = {}) {
         }
     }
     throw new ImportError(422, 'bench.import_unknown_format',
-        'I do not know that file. It should be an Inspect AI log, a Harbor results.json, an lm-evaluation-harness results.json or a promptfoo output.json.');
+        'I do not know that file. It should be an Inspect AI log, a Harbor results.json, a lighteval results file, an lm-evaluation-harness results.json, a HELM stats file or a promptfoo output.json.');
 }
 
 module.exports = { TOOLS, TOOL_LABELS, detect, parse, ImportError, MAX_UPLOAD_BYTES };

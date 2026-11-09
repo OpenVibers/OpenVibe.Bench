@@ -89,7 +89,17 @@ function createImports({ s, registry, log = console }) {
                 score: m.score == null ? null : num(m.score),
                 cost_usd: m.cost_usd == null ? null : num(m.cost_usd),
                 tokens: m.tokens == null ? null : num(m.tokens),
-                tasks: (m.tasks || []).map((t) => ({ task_id: String(t.task_id), score: t.score == null ? null : num(t.score) })),
+                // B7: the harness's own settings travel with the import: the run's seed and few-shot, and each
+                // task's version and metric, so a result can be compared at a glance with the tool that made it.
+                seed: m.seed == null ? null : String(m.seed),
+                few_shot: m.few_shot == null ? null : num(m.few_shot),
+                tasks: (m.tasks || []).map((t) => ({
+                    task_id: String(t.task_id),
+                    score: t.score == null ? null : num(t.score),
+                    task_version: t.task_version == null ? null : String(t.task_version),
+                    few_shot: t.few_shot == null ? null : num(t.few_shot),
+                    metric: t.metric == null ? null : String(t.metric),
+                })),
             })),
         };
         await db.exec(
@@ -202,13 +212,23 @@ function createImports({ s, registry, log = console }) {
                 .filter((t) => known.has(t.task_id))
                 .map((t) => ({ task_id: t.task_id, score: t.score == null ? null : num(t.score), cost_usd: 0, ms: 0, tokens: 0, artifacts: [] }));
             if (!tasks.length) continue;
+            // B7: keep what the harness recorded beside the scores: the task versions, the few-shot and the seed.
+            const taskVersions = {};
+            for (const task of model.tasks || []) {
+                if (task.task_version) taskVersions[String(task.task_id)] = String(task.task_version);
+            }
+            const settings = {
+                ...(model.seed != null ? { seed: String(model.seed) } : {}),
+                ...(model.few_shot != null ? { few_shot: num(model.few_shot) } : {}),
+                ...(Object.keys(taskVersions).length ? { task_versions: taskVersions } : {}),
+            };
             const published = await registry.publishRun({
                 benchmark: benchmark.id + '@' + version,
                 model: String(model.model || 'unknown').slice(0, 160),
                 provider: String(model.provider || 'unknown').slice(0, 160),
                 route: {},
                 harness: summary.harness || { name: toolLabel, version: summary.tool_version || 'unknown' },
-                settings: {},
+                settings,
                 tasks,
                 score: model.score == null ? null : num(model.score),
                 cost_usd: num(model.cost_usd),
