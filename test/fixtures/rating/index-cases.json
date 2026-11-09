@@ -1,0 +1,50 @@
+{
+  "weights": { "rating": 0.5, "benchmarks": 0.5 },
+  "cases": [
+    {
+      "name": "a rating alone is not an Index",
+      "rating": 1200,
+      "benchmarks": [],
+      "benchmarkCount": 0,
+      "expect": { "index": null, "n_components": 1, "weight_sum": 0.5 }
+    },
+    {
+      "name": "one benchmark alone is not an Index either",
+      "rating": null,
+      "benchmarks": [{ "id": "b1", "label": "One", "score": 80, "runs": 2 }],
+      "benchmarkCount": 1,
+      "expect": { "index": null, "n_components": 1, "weight_sum": 0.5 }
+    },
+    {
+      "name": "a rating and one of two benchmarks: the missing benchmark's weight renormalises",
+      "rating": 1000,
+      "benchmarks": [{ "id": "b1", "label": "One", "score": 80, "runs": 3 }],
+      "benchmarkCount": 2,
+      "expect": { "index": 60, "n_components": 2, "weight_sum": 0.75 }
+    },
+    {
+      "name": "two benchmarks and no rating still make an Index",
+      "rating": null,
+      "benchmarks": [
+        { "id": "b1", "label": "One", "score": 40, "runs": 1 },
+        { "id": "b2", "label": "Two", "score": 80, "runs": 1 }
+      ],
+      "benchmarkCount": 2,
+      "expect": { "index": 60, "n_components": 2, "weight_sum": 0.5 }
+    },
+    {
+      "name": "a score over 100 is clamped, not trusted",
+      "rating": 1000,
+      "benchmarks": [{ "id": "b1", "label": "One", "score": 140, "runs": 1 }],
+      "benchmarkCount": 1,
+      "expect": { "index": 75, "n_components": 2, "weight_sum": 1 }
+    },
+    {
+      "name": "the rating is the Elo expectation against 1000, as 0-100 points",
+      "rating": 1000,
+      "benchmarks": [],
+      "benchmarkCount": 0,
+      "expect": { "index": null, "n_components": 1, "weight_sum": 0.5, "rating_value": 50 }
+    }
+  ]
+}

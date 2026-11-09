@@ -229,6 +229,22 @@ observations is returned only when every observation counts that outcome; a miss
 ignores any such fields, and the read routes never join a task, benchmark or entry. The only text in a row is an
 exact id, a family, and the id of the round or run that produced it.
 
+## The boards: ranks, categories, the Index and the holdout
+
+`GET /api/v1/boards/:kindId?type=elo` returns the fit, not just the Elo updates: each row carries `elo`, its
+`ci_lower`/`ci_upper` rating interval, and `rank`/`rank_lo`/`rank_hi` — the 95% rank interval from the same bootstrap.
+The board also carries:
+
+| Field | What it holds |
+|---|---|
+| `categories` | One board per task category with at least 30 games: `{ category, games, rows }`, each row fitted the same way. A category below the floor is left out. `?category=<slug>` answers for one category alone. |
+| `index` | The OpenVibe Index per model: `{ weights, rating_anchor, benchmark_count, benchmarks[], rows[] }`. Each row is `{ subject, index, n_components, weight_sum, components[] }`; `index` is null when fewer than two components exist. |
+| `holdout` | `{ available, held_out_tasks, rows[] }`; each row is `{ subject, public_n, public_score, holdout_n, holdout_score, gap }`, with a null gap when either side has no scores. |
+
+The open dataset (`/api/v1/datasets/:kindId.jsonl`) also emits `type: "category"`, `type: "index"` and
+`type: "holdout"` lines, and its rating lines carry the rank interval. The formulas, the 0.5/0.5 weights and the
+30-game floor are in [index.md](index.md).
+
 ## The older API
 
 Bench also serves kinds, tasks, rounds, entries, judgements, the boards, the models, the open dataset and the private

@@ -13,6 +13,7 @@ const clipLib = require('./bench/clip');
 const clipSource = require('./bench/clip-source');
 const ratingLib = require('./rating');
 const styleLib = require('./rating/style');
+const statsLib = require('./rating/stats');
 const { checkSvg } = require('./bench/svg-check');
 
 const BASE_ELO = ratingLib.BASE_ELO;
@@ -203,6 +204,14 @@ function ratingCi(elo, wins, losses, ties) {
 
 function createStore(s, { log = console, random = Math.random, config = null } = {}) {
     const db = s.db;
+    // The kind boards' fits are pure functions of the games, so a board asks for the same fit only once per
+    // vote set. The key changes with the number of games, and a short TTL covers a vote that lands mid-request.
+    const boardFits = new Map();
+    const BOARD_BOOTSTRAP = 200;
+    const BOARD_FIT_TTL_MS = 5 * 60_000;
+    // A per-category board is published only when its category has this many games; below it there is not
+    // enough play to separate models, so the board is left out of the category list rather than shown thin.
+    const CATEGORY_MIN_GAMES = 30;
 
     // ── Outbox (in the same ambient transaction as the change that caused it) ──
     async function insertOutbox(topic, payload) {
@@ -460,24 +469,43 @@ function createStore(s, { log = console, random = Math.random, config = null } =
     }
 
     // ── Judgements ──────────────────────────────────────────
+    /**
+     * The pairwise games of a board, as the rating maths reads them: two model names and an outcome of
+     * 'a', 'b' or 'tie'. The pair on a judgement names two entries, so the models come from the entries, never
+     * from the entry ids.
+     *
+     * The category picks the games the board counts: 'all' every vote, 'people' the signed-in voters, 'anon' the
+     * anonymous ones, and any other slug the task's own category (code, writing, chat, reasoning…).
+     */
     async function pairwiseGames(kindId, category = CATEGORY_DEFAULT) {
+        const cat = String(category == null ? CATEGORY_DEFAULT : category);
         const rows = await db.many(
-            `SELECT * FROM bench_judgements
-             WHERE kind_id = $1 AND method IN ('human_pairwise', 'game_outcome', 'audience_poll') AND pair IS NOT NULL
-               AND ($2::text = 'all' OR outcome IS NOT NULL)
-             ORDER BY at, id`,
-            [kindId, category],
+            `SELECT j.id, j.method, j.outcome, j.vote_counts, l.model AS left_model, e.model AS right_model
+             FROM bench_judgements j
+             JOIN bench_rounds rd ON rd.id = j.round_id
+             JOIN bench_tasks t ON t.id = rd.task_id
+             JOIN bench_entries l ON l.id = j.pair->>'left' AND l.round_id = j.round_id
+             JOIN bench_entries e ON e.id = j.pair->>'right' AND e.round_id = j.round_id
+             WHERE j.kind_id = $1
+               AND j.method IN ('human_pairwise', 'game_outcome', 'audience_poll')
+               AND j.pair IS NOT NULL AND j.outcome IS NOT NULL
+               AND ($2::text <> 'people' OR COALESCE(j.voter_kind, 'person') = 'person')
+               AND ($2::text <> 'anon' OR j.voter_kind = 'anon')
+               AND ($2::text IN ('all', 'people', 'anon') OR t.task_class = $2)
+             ORDER BY j.at, j.id`,
+            [kindId, cat],
         );
         const out = [];
         for (const j of rows) {
-            const pair = typeof j.pair === 'string' ? JSON.parse(j.pair) : j.pair;
-            if (!pair || !pair.left || !pair.right) continue;
             if (j.outcome === 'both_bad') continue;
             if (j.method === 'audience_poll') {
                 const counts = typeof j.vote_counts === 'string' ? JSON.parse(j.vote_counts) : j.vote_counts;
                 if (!counts || !num(counts.voters)) continue;
             }
-            out.push({ a: pair.left, b: pair.right, outcome: j.outcome === 'left' ? 1 : j.outcome === 'right' ? 0 : 0.5 });
+            if (!j.left_model || !j.right_model || j.left_model === j.right_model) continue;
+            const outcome = j.outcome === 'left' ? 'a' : j.outcome === 'right' ? 'b' : (j.outcome === 'tie' || j.outcome === 'draw') ? 'tie' : null;
+            if (!outcome) continue;
+            out.push({ id: j.id, a: j.left_model, b: j.right_model, outcome });
         }
         return out;
     }
@@ -640,28 +668,183 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         return rows.map((r) => r.model);
     }
 
+    /**
+     * The Bradley-Terry fit of one board, cached on the vote set. The fit is the same maths the ratings page uses
+     * (server/rating/lib.js): every game is one vote, the ratings are centred on 1000, and the bootstrap supplies
+     * both the rating interval and the 95% rank interval. The seed is fixed, so the same games give the same board.
+     */
+    async function pairwiseFit(kindId, category) {
+        const games = await pairwiseGames(kindId, category);
+        const key = `${kindId}:${category}:${games.length}:${games.length ? games[games.length - 1].id : '-'}`;
+        const hit = boardFits.get(key);
+        if (hit && Date.now() - hit.at < BOARD_FIT_TTL_MS) return hit.fit;
+        const fit = ratingLib.bradleyTerry(games, { bootstrap: BOARD_BOOTSTRAP, seed: 1 });
+        boardFits.set(key, { at: Date.now(), fit });
+        if (boardFits.size > 200) {
+            const oldest = [...boardFits.entries()].sort((a, b) => a[1].at - b[1].at).slice(0, 100);
+            for (const [stale] of oldest) boardFits.delete(stale);
+        }
+        return fit;
+    }
+
     async function boardElo(kindId, category = CATEGORY_DEFAULT) {
         const subjects = await subjectsFor(kindId);
-        const ratings = await db.many('SELECT * FROM bench_ratings WHERE kind_id = $1 AND category = $2', [kindId, category]);
-        const by = new Map(ratings.map((r) => [r.subject, wireRating(r)]));
+        const fit = await pairwiseFit(kindId, category);
+        const by = new Map(fit.map((r) => [r.subject, r]));
         // A task category only lists the models that played in it: a model with no game in this kind of
         // work has no place on its board, rather than a baseline score it never earned.
         const taskCategory = ![CATEGORY_DEFAULT, CATEGORY_PEOPLE, CATEGORY_ANON].includes(category);
-        const rows = (taskCategory ? subjects.filter((subject) => by.has(subject)) : subjects).map((subject) => {
+        const listed = new Set(taskCategory ? subjects.filter((subject) => by.has(subject)) : subjects);
+        for (const r of fit) listed.add(r.subject);
+        const rows = [...listed].map((subject) => {
             const r = by.get(subject);
             const games = r ? r.games : 0;
             return {
                 kind_id: kindId, category, subject,
-                elo: r ? r.elo : BASE_ELO,
+                elo: r ? Math.round(r.rating * 100) / 100 : BASE_ELO,
                 games, wins: r ? r.wins : 0, losses: r ? r.losses : 0, ties: r ? r.ties : 0,
-                win_rate: r ? r.win_rate : 0,
-                ci_lower: r ? r.ci_lower : null,
-                ci_upper: r ? r.ci_upper : null,
+                win_rate: games ? Math.round(((r.wins + r.ties * 0.5) / games) * 10000) / 10000 : 0,
+                ci_lower: r ? Math.round(r.ci_lower * 100) / 100 : null,
+                ci_upper: r ? Math.round(r.ci_upper * 100) / 100 : null,
+                rank: r ? r.rank : null,
+                rank_lo: r ? r.rank_lo : null,
+                rank_hi: r ? r.rank_hi : null,
                 provisional: games < 10,
             };
         });
         rows.sort((a, b) => b.elo - a.elo || a.subject.localeCompare(b.subject));
         return rows;
+    }
+
+    /**
+     * The per-category boards: one for every task category of the kind with at least CATEGORY_MIN_GAMES games, in
+     * the same shape as the kind's own board. A category below the floor is not listed at all, so a page can say
+     * "not enough games yet" without drawing a board that cannot separate anything.
+     */
+    async function categoryBoards(kindId) {
+        const rows = await db.many(
+            `SELECT t.task_class AS category, COUNT(*)::int AS games
+             FROM bench_judgements j
+             JOIN bench_rounds rd ON rd.id = j.round_id
+             JOIN bench_tasks t ON t.id = rd.task_id
+             JOIN bench_entries l ON l.id = j.pair->>'left' AND l.round_id = j.round_id
+             JOIN bench_entries e ON e.id = j.pair->>'right' AND e.round_id = j.round_id
+             WHERE j.kind_id = $1
+               AND j.method IN ('human_pairwise', 'game_outcome', 'audience_poll')
+               AND j.pair IS NOT NULL AND j.outcome IS NOT NULL AND j.outcome <> 'both_bad'
+               AND t.task_class IS NOT NULL
+               AND t.task_class NOT IN ('all', 'people', 'anon')
+             GROUP BY t.task_class
+             HAVING COUNT(*) >= $2
+             ORDER BY COUNT(*) DESC, t.task_class`,
+            [kindId, CATEGORY_MIN_GAMES],
+        );
+        const out = [];
+        for (const row of rows) {
+            out.push({
+                category: row.category,
+                games: num(row.games),
+                rows: await boardElo(kindId, row.category),
+            });
+        }
+        return out;
+    }
+
+    /**
+     * The OpenVibe Index for a kind: the Bradley-Terry rating plus the model's median verified score on each public
+     * benchmark of that kind, weighted 50/50 and split equally between the benchmarks. The weights are in the
+     * answer; a model with fewer than two components gets null, never a number from one component.
+     */
+    async function kindIndex(kindId, eloRows) {
+        const rows = await db.many(
+            `SELECT b.id, b.title, r.model, r.score
+             FROM bench_runs r
+             JOIN bench_benchmarks b ON b.id = r.benchmark_id
+             WHERE b.kind = $1 AND b.visibility = 'public' AND r.provenance = 'verified'
+               AND r.score IS NOT NULL
+             ORDER BY b.created_at, b.id, r.model, r.created_at, r.id`,
+            [kindId],
+        );
+        const benchmarks = new Map();
+        const scores = new Map();
+        for (const row of rows) {
+            if (!benchmarks.has(row.id)) benchmarks.set(row.id, { id: row.id, label: row.title });
+            const key = `${row.id}\u0000${row.model}`;
+            if (!scores.has(key)) scores.set(key, []);
+            scores.get(key).push(num(row.score));
+        }
+        const benchmarkList = [...benchmarks.values()];
+        const modelNames = new Set(eloRows.filter((row) => row.rank != null).map((row) => row.subject));
+        for (const key of scores.keys()) modelNames.add(key.split('\u0000')[1]);
+        const indexRows = [...modelNames].map((subject) => {
+            const ratingRow = eloRows.find((row) => row.subject === subject);
+            const present = benchmarkList
+                .map((benchmark) => ({
+                    id: benchmark.id,
+                    label: benchmark.label,
+                    runs: (scores.get(`${benchmark.id}\u0000${subject}`) || []).length,
+                    score: statsLib.median(scores.get(`${benchmark.id}\u0000${subject}`) || []),
+                }))
+                .filter((benchmark) => benchmark.score != null);
+            const value = statsLib.openvibeIndex({
+                rating: ratingRow && ratingRow.rank != null ? ratingRow.elo : null,
+                benchmarks: present,
+                benchmarkCount: benchmarkList.length,
+            });
+            return { subject, ...value };
+        });
+        indexRows.sort((a, b) => {
+            if (a.index == null && b.index == null) return a.subject.localeCompare(b.subject);
+            if (a.index == null) return 1;
+            if (b.index == null) return -1;
+            return b.index - a.index || a.subject.localeCompare(b.subject);
+        });
+        return {
+            kind_id: kindId,
+            weights: { ...statsLib.INDEX_WEIGHTS },
+            rating_anchor: statsLib.RATING_ANCHOR,
+            benchmark_count: benchmarkList.length,
+            benchmarks: benchmarkList.map((benchmark) => ({
+                id: benchmark.id,
+                label: benchmark.label,
+                weight: benchmarkList.length ? Math.round((statsLib.INDEX_WEIGHTS.benchmarks / benchmarkList.length) * 1e6) / 1e6 : 0,
+            })),
+            rows: indexRows,
+        };
+    }
+
+    /**
+     * The holdout gap for a kind: per model, the mean score on public tasks minus the mean score on held-out tasks,
+     * with the number of scored tasks on each side. Verified runs of public benchmarks only. A kind without
+     * held-out tasks says `available: false`; a model missing one side gets a null gap.
+     */
+    async function kindHoldout(kindId) {
+        const rows = await db.many(
+            `SELECT b.id AS benchmark_id, r.model, t.task_id, t.score, t.held_out
+             FROM bench_run_tasks t
+             JOIN bench_runs r ON r.id = t.run_id
+             JOIN bench_benchmarks b ON b.id = r.benchmark_id
+             WHERE b.kind = $1 AND b.visibility = 'public' AND r.provenance = 'verified'
+               AND t.score IS NOT NULL
+             ORDER BY r.model, t.created_at, t.id`,
+            [kindId],
+        );
+        const by = new Map();
+        for (const row of rows) {
+            if (!by.has(row.model)) by.set(row.model, { public: [], holdout: [] });
+            const bucket = by.get(row.model);
+            if (row.held_out) bucket.holdout.push(num(row.score));
+            else bucket.public.push(num(row.score));
+        }
+        const out = [...by.entries()].map(([subject, bucket]) => ({ subject, ...statsLib.holdoutGap(bucket.public, bucket.holdout) }));
+        out.sort((a, b) => (b.gap == null ? -Infinity : b.gap) - (a.gap == null ? -Infinity : a.gap) || a.subject.localeCompare(b.subject));
+        const available = rows.some((row) => row.held_out);
+        return {
+            kind_id: kindId,
+            available,
+            held_out_tasks: new Set(rows.filter((row) => row.held_out).map((row) => `${row.benchmark_id}:${row.task_id}`)).size,
+            rows: out,
+        };
     }
 
     async function costStats(kindId) {
@@ -763,7 +946,19 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         } else {
             return null;
         }
-        return { kind_id: kindId, category: cat, period, type, rows, voters: await voterCounts(kindId) };
+        // The kind's own statistics travel with every board: the rating board also carries its per-category
+        // boards, and every type carries the OpenVibe Index and the holdout gap. The Index always reads the
+        // whole kind's rating, even when the rows are filtered to one kind of voter.
+        const allEloRows = cat === CATEGORY_DEFAULT ? eloRows : await boardElo(kindId);
+        const [voterKinds, categories, index, holdout] = await Promise.all([
+            voterCounts(kindId),
+            type === 'elo' ? categoryBoards(kindId) : Promise.resolve(undefined),
+            kindIndex(kindId, allEloRows),
+            kindHoldout(kindId),
+        ]);
+        const out = { kind_id: kindId, category: cat, period, type, rows, voters: voterKinds, index, holdout };
+        if (categories !== undefined) out.categories = categories;
+        return out;
     }
 
     /**
@@ -830,8 +1025,26 @@ function createStore(s, { log = console, random = Math.random, config = null } =
             entries = (await db.many('SELECT * FROM bench_entries WHERE round_id = ANY($1::text[]) ORDER BY created_at, id', [roundIds])).map(wireEntry);
             judgements = (await db.many('SELECT * FROM bench_judgements WHERE round_id = ANY($1::text[]) ORDER BY at, id', [roundIds])).map((j) => wireJudgement(j));
         }
-        const ratings = (await db.many('SELECT * FROM bench_ratings WHERE kind_id = $1 ORDER BY subject', [kindId])).map(wireRating);
-        return { kind_id: kindId, tasks, rounds, entries, judgements, ratings };
+        const allEloRows = await boardElo(kindId);
+        const rankBy = new Map(allEloRows.map((row) => [row.subject, row]));
+        const ratings = (await db.many('SELECT * FROM bench_ratings WHERE kind_id = $1 ORDER BY subject', [kindId])).map(wireRating)
+            .map((rating) => {
+                const ranked = rating.category === CATEGORY_DEFAULT ? rankBy.get(rating.subject) : null;
+                return {
+                    ...rating,
+                    rank: ranked ? ranked.rank : null,
+                    rank_lo: ranked ? ranked.rank_lo : null,
+                    rank_hi: ranked ? ranked.rank_hi : null,
+                };
+            });
+        const [categories, index, holdout] = await Promise.all([
+            categoryBoards(kindId),
+            kindIndex(kindId, allEloRows),
+            kindHoldout(kindId),
+        ]);
+        // The open dataset carries the same four statistics the board API answers with: every rating's rank
+        // interval, the per-category boards, the OpenVibe Index with its weights, and the holdout gap.
+        return { kind_id: kindId, tasks, rounds, entries, judgements, ratings, categories, index, holdout };
     }
 
     async function datasetJsonl(kindId) {
@@ -843,6 +1056,9 @@ function createStore(s, { log = console, random = Math.random, config = null } =
         for (const e of d.entries) lines.push(JSON.stringify({ type: 'entry', ...e }));
         for (const j of d.judgements) lines.push(JSON.stringify({ type: 'judgement', ...j }));
         for (const r of d.ratings) lines.push(JSON.stringify({ type: 'rating', ...r }));
+        for (const c of d.categories) lines.push(JSON.stringify({ type: 'category', ...c }));
+        lines.push(JSON.stringify({ type: 'index', ...d.index }));
+        lines.push(JSON.stringify({ type: 'holdout', ...d.holdout }));
         return lines.length ? `${lines.join('\n')}\n` : '';
     }
 
