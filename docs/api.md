@@ -245,6 +245,22 @@ The open dataset (`/api/v1/datasets/:kindId.jsonl`) also emits `type: "category"
 `type: "holdout"` lines, and its rating lines carry the rank interval. The formulas, the 0.5/0.5 weights and the
 30-game floor are in [index.md](index.md).
 
+## Provider fidelity (stage B5)
+
+| Route | Who | What |
+|---|---|---|
+| `GET /api/v1/fidelity` | anyone | The latest measurement of every offer: `score` (pass rate), `n`, `interval` (95% Wilson), `compared_to`, `measured_at`, `prompt_set`. Cached 60 seconds. |
+| `GET /api/v1/fidelity/objective-set` | anyone | The fixed public set (`fidelity-2026-11-09.v1`): every prompt and the deterministic check it is graded by. |
+| `POST /api/v1/fidelity/plan` | operator token | The dry run: each offer, its calls, the own-page price estimate and whether it fits the daily cap. Spends nothing. |
+| `POST /api/v1/fidelity/run` | operator token | One bounded pass. Refused with `fidelity.disabled` until `BENCH_FIDELITY=1`; capped by `BENCH_FIDELITY_DAILY_CAP_USD` and `BENCH_FIDELITY_MAX_CALLS`. |
+| `GET /api/v1/fidelity/status` | operator token | Whether the switch is on and the last pass's state. |
+
+The measurement asks every enabled provider of an open-weight model the same ten objective items, answers only, and
+grades each answer with a published exact/JSON/regex check. A provider that quantizes, truncates the context or
+serves another checkpoint answers fewer correctly; that is the number beside its price. A caller never sees a rank
+or a winner. Scores travel to OpenVibe.AI with `GET /api/v1/exchange/market` / `catalog` as each offer's `fidelity`
+field (null when unmeasured). The dry run and the cap are the owner's switch: fidelity is off by default.
+
 ## The older API
 
 Bench also serves kinds, tasks, rounds, entries, judgements, the boards, the models, the open dataset and the private

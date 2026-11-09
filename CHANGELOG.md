@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Provider fidelity (B5).** `GET /api/v1/fidelity` publishes, for every measured open-weight model offer, the
+  score of the fixed public objective set (`fidelity-2026-11-09.v1`: ten objective items, a deterministic check each,
+  no judge), with n, its 95% Wilson interval and the model it was compared on. `POST /api/v1/fidelity/plan` is the
+  dry run: every call, the own-page price estimate and whether it fits the owner's daily cap. `POST
+  /api/v1/fidelity/run` runs one bounded pass; every call goes through OpenVibe.AI's normal generate path, pinned to
+  the exact offer, with a durable idempotency key per prompt and week. Off by default (`BENCH_FIDELITY=1`), daily
+  capped, and a weekly due-based job when on. The objective set is public at `GET /api/v1/fidelity/objective-set`;
+  answers are never stored, only which item passed.
 - **The 18+ board (`chat.willing`).** A new adult kind and `GET /api/v1/boards/chat.willing`, marked `adult: true` on the board and every row. It reads OpenVibe.AI's measured refusal and hedge rates (n and Wilson intervals) on the published 60-prompt lawful adult set, plus the abliteration tax for each declared base/abliterated pair: the same objective set on both, with the score difference and its Newcombe interval. A non-willingness type on the adult kind is refused; when AI cannot answer, the board says the measurements are unavailable and invents no rows.
 - **Every Eval Ever (B2).** Bench imports the public EEE datastore (`github.com/evaleval/every_eval_ever`,
   `evaleval/EEE_datastore`) as *external* results: the model (joined by Report's rule — maker prefix and a date or

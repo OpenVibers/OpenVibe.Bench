@@ -202,17 +202,18 @@ function createBenchAi({ config, fetchImpl = globalThis.fetch, log = console }) 
         return { run: r, ms: msOf(r, Date.now() - startedAt) };
     }
 
-    async function generate({ prompt, kind, slot, roundId, index }) {
+    async function generate({ prompt, kind, slot, roundId, index, system = null, maxTokens = null, temperature = 0.7, idempotencyKey = null, target = null }) {
         if (!enabled) throw new BenchAiError(503, 'ai.not_configured', 'OpenVibe.AI is not configured for Bench.');
         const pinned = slot && slot.provider && slot.provider !== 'ai' ? { provider: slot.provider, model: slot.model || null } : null;
         const body = {
             prompt,
-            system: systemPrompt(kind),
-            max_tokens: maxTokensFor(kind),
-            temperature: 0.7,
+            system: system || systemPrompt(kind),
+            max_tokens: maxTokens == null ? maxTokensFor(kind) : maxTokens,
+            temperature,
             options: { cache: false },
             ...(pinned ? { route: pinned } : {}),
-            target: { service: 'bench', type: 'bench_output', id: `${roundId}_${index}`.slice(0, 128) },
+            ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
+            target: target || { service: 'bench', type: 'bench_output', id: String(idempotencyKey || `${roundId}_${index}`).slice(0, 128) },
         };
         const startedAt = Date.now();
         const wait = Math.min(ai.waitMs, 60_000);
@@ -226,6 +227,7 @@ function createBenchAi({ config, fetchImpl = globalThis.fetch, log = console }) 
                 input: { prompt: body.prompt, system: body.system, max_tokens: body.max_tokens, temperature: body.temperature },
                 options: body.options,
                 ...(body.route ? { route: body.route } : {}),
+                ...(body.idempotency_key ? { idempotency_key: body.idempotency_key } : {}),
                 target: body.target,
             });
         }
@@ -264,6 +266,12 @@ function createBenchAi({ config, fetchImpl = globalThis.fetch, log = console }) 
         };
     }
 
+    /** The market feed: every own-page model and provider offer, with its price and open-weights flag. */
+    async function market({ openWeights = true, limit = 500 } = {}) {
+        const query = `?limit=${Math.max(1, Math.min(500, Number(limit) || 500))}${openWeights ? '&open_weights=true' : ''}&kind=chat`;
+        return call('GET', `/api/v1/exchange/market${query}`);
+    }
+
     /** The 18+ board's measured willingness rates, from OpenVibe.AI's public read API. */
     async function willingness() {
         return call('GET', '/api/v1/exchange/willingness');
@@ -274,7 +282,7 @@ function createBenchAi({ config, fetchImpl = globalThis.fetch, log = console }) 
         return call('GET', '/api/v1/exchange/abliteration-tax');
     }
 
-    return { enabled, slots, slotPlan, offeredModels, rankOffers, generate, systemPrompt, maxTokensFor, willingness, abliterationTax };
+    return { enabled, slots, slotPlan, offeredModels, rankOffers, generate, systemPrompt, maxTokensFor, market, willingness, abliterationTax };
 }
 
 module.exports = { createBenchAi, BenchAiError };

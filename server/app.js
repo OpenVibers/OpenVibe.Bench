@@ -92,6 +92,9 @@ async function createApp(opts = {}) {
     // B2: the external EEE records and the exporter of Bench's own runs, plus the weekly import job.
     const eee = require('./bench/eee').createEee({ s, registry, fetchImpl, log, config });
     const eeeSync = require('./bench/eee-sync').createEeeSync({ eee, config, log });
+    // B5: the provider-fidelity measurements and their weekly pass (off unless BENCH_FIDELITY is on).
+    const fidelity = require('./bench/fidelity').createFidelity({ s, ai, config, clock: { now: opts.now || (() => Date.now()) }, log });
+    const fidelityJob = require('./bench/fidelity-job').createFidelityJob({ fidelity, config, log });
     const jobs = createBenchJobs({ s, bench, ai, config, log });
     // The signed-out voter (the cookie, the relay header and the daily caps) and the daily rounds job.
     const anon = createAnon({ s, config, log });
@@ -114,7 +117,7 @@ async function createApp(opts = {}) {
     const ctx = {
         config, s, keys, sso, principal, bench, registry, launcher, ai, jobs, publisher, accountData, accountSend, log, fetchImpl,
         anon, daily, variantEvidence, evidenceConfig, sharing,
-        imports, mirror, eee, eeeSync,
+        imports, mirror, eee, eeeSync, fidelity, fidelityJob,
         random: opts.random || Math.random,
     };
 
@@ -258,6 +261,7 @@ async function createApp(opts = {}) {
     }
     // The EEE routes come before the kind dataset route: /datasets/eee.jsonl would otherwise be read as kind 'eee'.
     app.use(require('./http/eee').createEeeRoutes(ctx));
+    app.use(require('./http/fidelity').createFidelityRoutes(ctx));
     app.use('/api/v1', createApi(ctx));
     app.use('/api/v1', createRegistryApi(ctx));
     app.use('/api/v1', createVariantEvidenceApi(ctx));

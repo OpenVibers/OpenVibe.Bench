@@ -64,8 +64,8 @@ function listen(handler) {
     });
 }
 
-async function startAi({ models = DEFAULT_MODELS, costUsd = 0.0012, ms = 321, tokensIn = 120, tokensOut = 480, textFor = null, willingness = DEFAULT_WILLINGNESS, abliterationTax = DEFAULT_TAX, willingnessStatus = 200, abliterationTaxStatus = 200 } = {}) {
-    const st = { models: models.map((m) => ({ ...m })), requests: [], runCount: 0, runs: new Map(), costUsd, ms, tokensIn, tokensOut, textFor, willingness, abliterationTax, willingnessStatus, abliterationTaxStatus };
+async function startAi({ models = DEFAULT_MODELS, costUsd = 0.0012, ms = 321, tokensIn = 120, tokensOut = 480, textFor = null, market = { offers: [] }, marketStatus = 200, willingness = DEFAULT_WILLINGNESS, abliterationTax = DEFAULT_TAX, willingnessStatus = 200, abliterationTaxStatus = 200 } = {}) {
+    const st = { models: models.map((m) => ({ ...m })), requests: [], runCount: 0, runs: new Map(), costUsd, ms, tokensIn, tokensOut, textFor, market, marketStatus, willingness, abliterationTax, willingnessStatus, abliterationTaxStatus };
 
     function modelFor(body) {
         const asked = body && body.route;
@@ -101,6 +101,12 @@ async function startAi({ models = DEFAULT_MODELS, costUsd = 0.0012, ms = 321, to
             st.requests.push({ method: 'GET', path: url.pathname, body });
             if (st.abliterationTaxStatus !== 200) return json(st.abliterationTaxStatus, { code: 'stub.unavailable', detail: 'the abliteration tax is unavailable' });
             return json(200, st.abliterationTax);
+        }
+
+        if (url.pathname === '/api/v1/exchange/market' && req.method === 'GET') {
+            st.requests.push({ method: 'GET', path: url.pathname, query: Object.fromEntries(url.searchParams), body });
+            if (st.marketStatus !== 200) return json(st.marketStatus, { code: 'stub.unavailable', detail: 'the market feed is unavailable' });
+            return json(200, st.market);
         }
 
         if (url.pathname === '/api/v1/routes' && req.method === 'GET') {
