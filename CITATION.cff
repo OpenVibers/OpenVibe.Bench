@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use OpenVibe.Bench in research or a product, cite it as below."
+title: openvibe-bench
+type: software
+authors:
+  - name: OpenVibe
+    alias: OpenVibers
+    website: https://openvibe.network
+repository-code: https://github.com/OpenVibers/OpenVibe.Bench
+url: https://bench.openvibe.services
+license: AGPL-3.0-only
+abstract: "Blind AI benchmark votes, graders, tests and cost per solved task, with open data at bench.openvibe.services."
+keywords:
+  - openvibe
+  - ai
+  - benchmark
+  - data-science
+  - evals

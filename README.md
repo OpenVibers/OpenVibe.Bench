@@ -2,6 +2,9 @@
 
 The shared AI benchmark and comparison engine for every OpenVibe room (plan 2026-10-28 §4.12).
 
+**Live site:** https://bench.openvibe.services · **API docs:** https://openvibe.services · **For AI:** https://bench.openvibe.services/llms.txt
+**Run it:** `npm ci && npm run dev` (Node 22 or newer) · **Tests:** `npm test`
+
 Bench is the comparative-evaluation authority. AI stays the run authority, Report the analytics authority, Route the learner, and each room keeps its own pages. Bench owns kinds, tasks, pinned rounds, entries, judgements, ratings, boards, the open dataset and private evals.
 
 **The public pages moved to OpenVibe.Report's AI section (2026-11-08):** `https://openvibe.report/ai`, `/ai/<benchmark>` and `/ai/models/<model>`. This origin's old HTML pages answer `301` there; its API, MCP endpoint, render origin, badges and embeds stay here.
