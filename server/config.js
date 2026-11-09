@@ -136,6 +136,16 @@ function load(env = process.env) {
                 // How often the job looks at the clock.
                 pollMs: Math.max(30_000, int(env.BENCH_DAILY_POLL_MS, 300_000)),
             },
+            // B2: the weekly Every Eval Ever import. It reads a public datastore (no account, no key), so it is safe
+            // to run, but it is the owner's switch: off until BENCH_EEE_SYNC is on. One pass is bounded by the two
+            // caps, and the cursor in bench_eee_syncs makes a stopped pass resume.
+            eee: {
+                enabled: bool(env.BENCH_EEE_SYNC, false),
+                enabledInDrill: bool(env.BENCH_EEE_SYNC_IN_DRILL, false),
+                intervalMs: Math.max(60_000, int(env.BENCH_EEE_SYNC_INTERVAL_MS, 7 * 24 * 60 * 60 * 1000)),
+                filesPerRun: Math.max(1, int(env.BENCH_EEE_FILES_PER_RUN, 5000)),
+                recordsPerRun: Math.max(1, int(env.BENCH_EEE_RECORDS_PER_RUN, 50000)),
+            },
         },
     };
 }

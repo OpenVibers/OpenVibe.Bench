@@ -9,7 +9,9 @@ const { html, raw } = require('../render/html');
 const TOOLS = [
     { key: 'inspect', label: 'Inspect AI', hint: 'an .eval log (a zip) or its JSON log' },
     { key: 'harbor', label: 'Harbor', hint: 'the results.json of a Harbor job' },
+    { key: 'lighteval', label: 'HF lighteval', hint: 'the results_<model>.json of a run' },
     { key: 'lm-eval', label: 'lm-evaluation-harness', hint: 'the results.json of a run' },
+    { key: 'helm', label: 'Stanford HELM', hint: 'a run’s stats.json with its run_spec.json' },
     { key: 'promptfoo', label: 'promptfoo', hint: 'the output.json of promptfoo eval -o' },
 ];
 
