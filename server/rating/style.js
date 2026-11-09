@@ -34,7 +34,7 @@
  * Bradley-Terry so the numbers mean what a reader expects.
  */
 
-const { percentile } = require('./lib');
+const { percentile, ranksOf } = require('./lib');
 
 /** Elo points per unit of log-odds: the usual 400 / ln(10). */
 const SCALE = 400 / Math.log(10);
@@ -381,6 +381,8 @@ function fitRatings(games, {
 
     const rawSamples = new Map();
     const ctrlSamples = new Map();
+    const rawRankSamples = new Map();
+    const ctrlRankSamples = new Map();
     const random = seededRandom(seed);
     const rounds = Math.max(0, Math.min(BOOTSTRAP, Number(bootstrap) || 0));
     const n = prepared.count;
@@ -391,16 +393,33 @@ function fitRatings(games, {
         for (let j = 0; j < n; j++) order[j] = Math.floor(random() * n);
         const r = fitPrepared(prepared, { order, use: [], ridge, maxIter: 60, warm: { theta: raw.theta, beta: [] } });
         const c = fitPrepared(prepared, { order, use: covariates, ridge, betaRidge, maxIter: 60, warm: { theta: controlled.theta, beta: controlled.beta } });
+        const rawRanks = ranksOf(r.theta);
+        const ctrlRanks = ranksOf(c.theta);
         for (const [subject, position] of rawIndex) {
-            if (!rawSamples.has(subject)) { rawSamples.set(subject, []); ctrlSamples.set(subject, []); }
+            if (!rawSamples.has(subject)) {
+                rawSamples.set(subject, []); ctrlSamples.set(subject, []);
+                rawRankSamples.set(subject, []); ctrlRankSamples.set(subject, []);
+            }
             rawSamples.get(subject).push(r.theta[position]);
-            ctrlSamples.get(subject).push(c.theta[ctrlIndex.has(subject) ? ctrlIndex.get(subject) : 0]);
+            rawRankSamples.get(subject).push(rawRanks[position]);
+            const ctrlPosition = ctrlIndex.has(subject) ? ctrlIndex.get(subject) : 0;
+            ctrlSamples.get(subject).push(c.theta[ctrlPosition]);
+            ctrlRankSamples.get(subject).push(ctrlRanks[ctrlPosition]);
         }
     }
 
     const toRating = (theta) => ANCHOR + SCALE * theta;
     const rawTheta = new Map(raw.subjects.map((s, i) => [s, raw.theta[i]]));
     const ctrlTheta = new Map(controlled.subjects.map((s, i) => [s, controlled.theta[i]]));
+    const rawPointRankList = ranksOf(raw.theta);
+    const ctrlPointRankList = ranksOf(controlled.theta);
+    const rawPointRanks = new Map(raw.subjects.map((s, i) => [s, rawPointRankList[i]]));
+    const ctrlPointRanks = new Map(controlled.subjects.map((s, i) => [s, ctrlPointRankList[i]]));
+    const rankCell = (samples, point) => ({
+        rank: point,
+        rank_lo: samples.length ? Math.round(percentile(samples, 0.025)) : point,
+        rank_hi: samples.length ? Math.round(percentile(samples, 0.975)) : point,
+    });
     const rows = raw.subjects.map((subject) => {
         const thetaRaw = rawTheta.get(subject);
         const thetaCtrl = ctrlTheta.get(subject);
@@ -413,11 +432,13 @@ function fitRatings(games, {
                 rating: Math.round(toRating(thetaRaw) * 100) / 100,
                 ci_lower: rawP.length ? Math.round(toRating(percentile(rawP, 0.025)) * 100) / 100 : Math.round(toRating(thetaRaw) * 100) / 100,
                 ci_upper: rawP.length ? Math.round(toRating(percentile(rawP, 0.975)) * 100) / 100 : Math.round(toRating(thetaRaw) * 100) / 100,
+                ...rankCell(rawRankSamples.get(subject) || [], rawPointRanks.get(subject)),
             },
             controlled: {
                 rating: Math.round(toRating(thetaCtrl) * 100) / 100,
                 ci_lower: ctrlP.length ? Math.round(toRating(percentile(ctrlP, 0.025)) * 100) / 100 : Math.round(toRating(thetaCtrl) * 100) / 100,
                 ci_upper: ctrlP.length ? Math.round(toRating(percentile(ctrlP, 0.975)) * 100) / 100 : Math.round(toRating(thetaCtrl) * 100) / 100,
+                ...rankCell(ctrlRankSamples.get(subject) || [], ctrlPointRanks.get(subject)),
             },
         };
     }).sort((x, y) => y.raw.rating - x.raw.rating || x.model.localeCompare(y.model));

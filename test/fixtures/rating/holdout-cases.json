@@ -1,0 +1,34 @@
+{
+  "cases": [
+    {
+      "name": "a public set and a holdout: the gap is public minus holdout",
+      "public": [80, 90],
+      "holdout": [60],
+      "expect": { "public_n": 2, "public_score": 85, "holdout_n": 1, "holdout_score": 60, "gap": 25 }
+    },
+    {
+      "name": "no held-out score: the gap is null, never zero",
+      "public": [90, 70],
+      "holdout": [],
+      "expect": { "public_n": 2, "public_score": 80, "holdout_n": 0, "holdout_score": null, "gap": null }
+    },
+    {
+      "name": "no public score: the gap is null too",
+      "public": [],
+      "holdout": [40],
+      "expect": { "public_n": 0, "public_score": null, "holdout_n": 1, "holdout_score": 40, "gap": null }
+    },
+    {
+      "name": "nothing scored: every number is absent, not zero",
+      "public": [],
+      "holdout": [],
+      "expect": { "public_n": 0, "public_score": null, "holdout_n": 0, "holdout_score": null, "gap": null }
+    },
+    {
+      "name": "a negative gap says the held-out set scored higher",
+      "public": [55.5],
+      "holdout": [70.25],
+      "expect": { "public_n": 1, "public_score": 55.5, "holdout_n": 1, "holdout_score": 70.25, "gap": -14.75 }
+    }
+  ]
+}
