@@ -115,7 +115,7 @@ async function callTool(id, params, req, ctx) {
 
     switch (name) {
         case 'bench.list_kinds': {
-            const kinds = await bench.listKinds();
+            const kinds = await bench.listKinds({ includeAdult: true });
             return { response: result(id, { content: [{ type: 'text', text: kinds.map((k) => `${k.id}: ${k.name} (${k.room}, ${k.judge})`).join('\n') }], structuredContent: { kinds }, isError: false }) };
         }
         case 'bench.start_round': {
