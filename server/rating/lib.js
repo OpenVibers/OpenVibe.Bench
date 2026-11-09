@@ -92,6 +92,16 @@ function seededRandom(seed) {
   };
 }
 
+/**
+ * Competition ranks by strength: the best subject is 1st and equal ratings share the best rank. The bootstrap
+ * ranks use the same rule on every resampled fit, so a rank interval is the spread of the places the votes allow,
+ * not a second guess from the two ends of the rating interval.
+ */
+function ranksOf(ratings) {
+  const list = Array.isArray(ratings) ? ratings : [];
+  return list.map((rating) => 1 + list.filter((other) => other > rating + 1e-9).length);
+}
+
 function bradleyTerry(games, { bootstrap = 200, seed = 1, anchor = 1000, iterations = 200, weights } = {}) {
   const active = games.filter(game => game.outcome !== 'both_bad');
   const subjects = [...new Set(active.flatMap(game => [game.a, game.b]))].sort();
@@ -110,19 +120,25 @@ function bradleyTerry(games, { bootstrap = 200, seed = 1, anchor = 1000, iterati
   }
   const ratings = ratingsFor(active, subjects, weights, iterations, anchor);
   const samples = subjects.map(() => []);
+  const rankSamples = subjects.map(() => []);
   if (bootstrap > 0 && active.length) {
     const random = seededRandom(seed);
     for (let i = 0; i < bootstrap; i++) {
       const resampled = Array.from({ length: active.length }, () => active[Math.floor(random() * active.length)]);
       const draw = ratingsFor(resampled, subjects, weights, iterations, anchor);
       draw.forEach((rating, j) => samples[j].push(rating));
+      ranksOf(draw).forEach((rank, j) => rankSamples[j].push(rank));
     }
   }
+  const pointRanks = ranksOf(ratings);
   return subjects.map((subject, i) => ({
     subject,
     rating: ratings[i],
     ci_lower: samples[i].length ? percentile(samples[i], 2.5) : ratings[i],
     ci_upper: samples[i].length ? percentile(samples[i], 97.5) : ratings[i],
+    rank: pointRanks[i],
+    rank_lo: rankSamples[i].length ? Math.round(percentile(rankSamples[i], 2.5)) : pointRanks[i],
+    rank_hi: rankSamples[i].length ? Math.round(percentile(rankSamples[i], 97.5)) : pointRanks[i],
     ...stats.get(subject),
     provisional: stats.get(subject).games < 10,
   })).sort((a, b) => b.rating - a.rating || String(a.subject).localeCompare(String(b.subject)));
@@ -171,4 +187,4 @@ function costPerSolved(entries) {
   return { cost_usd, solved, per_solved: solved ? cost_usd / solved : null };
 }
 
-module.exports = { eloUpdate, bradleyTerry, voterWeights, wilson, pareto, costPerSolved, percentile };
+module.exports = { eloUpdate, bradleyTerry, voterWeights, wilson, pareto, costPerSolved, percentile, ranksOf };

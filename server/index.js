@@ -16,6 +16,7 @@ function createLifecycle({ server, ctx, exit, signals, timers = [], extra = [] }
             () => ctx.keys.client.stop(),
             () => ctx.jobs.stop(),
             () => ctx.daily.stop(),
+            () => ctx.eeeSync.stop(),
             () => ctx.publisher.stop(),
             async () => { clearInterval(ctx.telemetryTick); if (ctx.retention) await ctx.retention.stop(); if (ctx.telemetry) await ctx.telemetry.stop(); },
             () => ctx.s.close(),
@@ -45,6 +46,8 @@ async function start() {
     ctx.jobs.start();
     // The daily rounds (one per design kind per day). Off until BENCH_DAILY_ROUNDS is on; never under the drill.
     ctx.daily.start();
+    // The weekly Every Eval Ever import (B2). Off until BENCH_EEE_SYNC is on; bounded and resumable.
+    ctx.eeeSync.start();
     // Outbox publisher → OpenVibe.Events.
     ctx.publisher.start();
 

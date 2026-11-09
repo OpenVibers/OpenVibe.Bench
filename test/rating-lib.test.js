@@ -105,3 +105,35 @@ test('percentile interpolates and handles empty input', () => {
   assert.ok(Math.abs(percentile([1, 2, 3, 4], 95) - 3.85) < 1e-12);
   assert.equal(percentile([], 95), null);
 });
+
+test('rank intervals come from the same bootstrap as the rating intervals', () => {
+  const games = [
+    ...Array.from({ length: 24 }, () => game('A', 'B', 'a')),
+    ...Array.from({ length: 6 }, () => game('A', 'B', 'b')),
+    ...Array.from({ length: 20 }, () => game('B', 'C', 'a')),
+    ...Array.from({ length: 10 }, () => game('B', 'C', 'b')),
+    ...Array.from({ length: 25 }, () => game('A', 'C', 'a')),
+    ...Array.from({ length: 5 }, () => game('A', 'C', 'b')),
+  ];
+  const fit = bradleyTerry(games, { bootstrap: 200, seed: 11 });
+  const by = bySubject(fit);
+  assert.equal(by.get('A').rank, 1, 'the planted winner is first');
+  assert.equal(by.get('A').rank_lo, 1);
+  assert.ok(by.get('A').rank_hi >= 1);
+  assert.equal(by.get('C').rank, 3);
+  for (const row of fit) {
+    assert.ok(Number.isInteger(row.rank) && row.rank >= 1 && row.rank <= fit.length, `${row.subject} rank`);
+    assert.ok(Number.isInteger(row.rank_lo) && row.rank_lo >= 1, `${row.subject} rank_lo`);
+    assert.ok(Number.isInteger(row.rank_hi) && row.rank_hi <= fit.length, `${row.subject} rank_hi`);
+    assert.ok(row.rank_lo <= row.rank_hi, `${row.subject} interval is ordered`);
+  }
+  assert.deepEqual(bradleyTerry(games, { bootstrap: 200, seed: 11 }), fit, 'the rank intervals are seeded');
+});
+
+test('without a bootstrap the rank interval is the point rank, never a fraction', () => {
+  const fit = bradleyTerry([game('A', 'B', 'a'), game('A', 'B', 'a'), game('B', 'C', 'a')], { bootstrap: 0 });
+  for (const row of fit) {
+    assert.equal(row.rank_lo, row.rank);
+    assert.equal(row.rank_hi, row.rank);
+  }
+});

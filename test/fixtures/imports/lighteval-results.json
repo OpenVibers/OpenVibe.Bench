@@ -1,0 +1,238 @@
+{
+  "config_general": {
+    "lighteval_sha": "864af4f0ca5973e42ac4def921a3387ebeeca0c1",
+    "num_fewshot_seeds": 1,
+    "model_config": {
+      "model_name": "HuggingFaceTB/SmolLM2-1.7B-Instruct",
+      "generation_parameters": {
+        "temperature": 0.0,
+        "top_p": 0.9,
+        "seed": null
+      }
+    },
+    "model_name": "HuggingFaceTB/SmolLM2-1.7B-Instruct"
+  },
+  "results": {
+    "arc:challenge|25": {
+      "acc": 0.3,
+      "acc_stderr": 0.15275252316519466
+    },
+    "truthfulqa:mc|0": {
+      "truthfulqa_mc1": 0.2,
+      "truthfulqa_mc1_stderr": 0.13333333333333333,
+      "truthfulqa_mc2": 0.4801027091249869,
+      "truthfulqa_mc2_stderr": 0.13947336040397884
+    },
+    "bigbench_hard:geometric_shapes|3": {
+      "acc": 0.0,
+      "acc_stderr": 0.0
+    },
+    "agieval:logiqa-en|0": {
+      "acc": 0.2,
+      "acc_stderr": 0.13333333333333333
+    }
+  },
+  "versions": {},
+  "config_tasks": {
+    "arc:challenge|25": {
+      "name": "arc:challenge",
+      "prompt_function": "arc_prompt",
+      "hf_repo": "allenai/ai2_arc",
+      "hf_subset": "ARC-Challenge",
+      "metrics": [
+        {
+          "metric_name": "acc",
+          "higher_is_better": true,
+          "category": "LOGPROBS",
+          "sample_level_fn": "LoglikelihoodAcc(logprob_normalization=None)",
+          "corpus_level_fn": "mean",
+          "batched_compute": false
+        }
+      ],
+      "hf_data_files": null,
+      "solver": [
+        "solve"
+      ],
+      "scorer": "score",
+      "sample_fields": "record_to_sample",
+      "sample_to_fewshot": null,
+      "filter": null,
+      "hf_revision": null,
+      "hf_filter": null,
+      "hf_avail_splits": [
+        "train",
+        "test"
+      ],
+      "evaluation_splits": [
+        "test"
+      ],
+      "few_shots_split": null,
+      "few_shots_select": "random_sampling_from_train",
+      "generation_size": 1,
+      "generation_grammar": null,
+      "stop_sequence": [
+        "\n"
+      ],
+      "num_samples": null,
+      "original_num_docs": -1,
+      "effective_num_docs": -1,
+      "must_remove_duplicate_docs": false,
+      "num_fewshots": 25,
+      "version": 0
+    },
+    "truthfulqa:mc|0": {
+      "name": "truthfulqa:mc",
+      "prompt_function": "truthful_qa_multiple_choice_prompt",
+      "hf_repo": "truthfulqa/truthful_qa",
+      "hf_subset": "multiple_choice",
+      "metrics": [
+        {
+          "metric_name": [
+            "truthfulqa_mc1",
+            "truthfulqa_mc2"
+          ],
+          "higher_is_better": {
+            "truthfulqa_mc1": true,
+            "truthfulqa_mc2": true
+          },
+          "category": "LOGPROBS",
+          "sample_level_fn": "TruthfulqaMCMetrics()",
+          "corpus_level_fn": {
+            "truthfulqa_mc1": "mean",
+            "truthfulqa_mc2": "mean"
+          },
+          "batched_compute": false
+        }
+      ],
+      "hf_data_files": null,
+      "solver": null,
+      "scorer": null,
+      "sample_fields": null,
+      "sample_to_fewshot": null,
+      "filter": null,
+      "hf_revision": null,
+      "hf_filter": null,
+      "hf_avail_splits": [
+        "validation"
+      ],
+      "evaluation_splits": [
+        "validation"
+      ],
+      "few_shots_split": null,
+      "few_shots_select": null,
+      "generation_size": -1,
+      "generation_grammar": null,
+      "stop_sequence": [
+        "\n"
+      ],
+      "num_samples": null,
+      "original_num_docs": -1,
+      "effective_num_docs": -1,
+      "must_remove_duplicate_docs": false,
+      "num_fewshots": 0,
+      "version": 0
+    },
+    "bigbench_hard:geometric_shapes|3": {
+      "name": "bigbench_hard:geometric_shapes",
+      "prompt_function": "bbh_prompt",
+      "hf_repo": "lighteval/bbh",
+      "hf_subset": "geometric_shapes",
+      "metrics": [
+        {
+          "metric_name": "acc",
+          "higher_is_better": true,
+          "category": "LOGPROBS",
+          "sample_level_fn": "LoglikelihoodAcc(logprob_normalization=None)",
+          "corpus_level_fn": "mean",
+          "batched_compute": false
+        }
+      ],
+      "hf_data_files": null,
+      "solver": [
+        "solve"
+      ],
+      "scorer": "score",
+      "sample_fields": "record_to_sample",
+      "sample_to_fewshot": null,
+      "filter": null,
+      "hf_revision": null,
+      "hf_filter": null,
+      "hf_avail_splits": [
+        "train"
+      ],
+      "evaluation_splits": [
+        "train"
+      ],
+      "few_shots_split": null,
+      "few_shots_select": null,
+      "generation_size": -1,
+      "generation_grammar": null,
+      "stop_sequence": [
+        "</s>",
+        "Q=",
+        "\n\n"
+      ],
+      "num_samples": null,
+      "original_num_docs": -1,
+      "effective_num_docs": -1,
+      "must_remove_duplicate_docs": false,
+      "num_fewshots": 3,
+      "version": 0
+    },
+    "agieval:logiqa-en|0": {
+      "name": "agieval:logiqa-en",
+      "prompt_function": "agieval_prompt",
+      "hf_repo": "dmayhem93/agieval-logiqa-en",
+      "hf_subset": "default",
+      "metrics": [
+        {
+          "metric_name": "acc",
+          "higher_is_better": true,
+          "category": "LOGPROBS",
+          "sample_level_fn": "LoglikelihoodAcc(logprob_normalization=None)",
+          "corpus_level_fn": "mean",
+          "batched_compute": false
+        }
+      ],
+      "hf_data_files": null,
+      "solver": [
+        "solve"
+      ],
+      "scorer": "score",
+      "sample_fields": "record_to_sample",
+      "sample_to_fewshot": null,
+      "filter": null,
+      "hf_revision": null,
+      "hf_filter": null,
+      "hf_avail_splits": [
+        "test"
+      ],
+      "evaluation_splits": [
+        "test"
+      ],
+      "few_shots_split": null,
+      "few_shots_select": "random_sampling",
+      "generation_size": 1,
+      "generation_grammar": null,
+      "stop_sequence": [],
+      "num_samples": null,
+      "original_num_docs": -1,
+      "effective_num_docs": -1,
+      "must_remove_duplicate_docs": false,
+      "num_fewshots": 0,
+      "version": 0
+    }
+  },
+  "summary_general": {
+    "hashes": {
+      "hash_examples": "68b0b3cbd628cac8",
+      "hash_full_prompts": "6c276b4f520c3deb",
+      "hash_input_tokens": "84a946d8f5709efe",
+      "hash_cont_tokens": "655a877ed0bcff8a"
+    },
+    "truncated": 0,
+    "non_truncated": 0,
+    "padded": 0,
+    "non_padded": 0
+  }
+}

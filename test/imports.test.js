@@ -11,6 +11,9 @@ const { boot, check, done } = require('./helpers/boot');
 const { uncovered } = require('openvibe-sdk/account-data');
 const accountDataLib = require('../server/identity/account-data');
 const importers = require('../server/bench/importers');
+require('../server/bench/importers/helm');
+require('../server/bench/importers/lighteval');
+require('../server/bench/imports');
 const limits = require('../server/bench/importers/limits');
 const { matchSuite } = require('../server/bench/suites');
 const { createMirror } = require('../server/bench/mirror');
@@ -184,6 +187,35 @@ function multipart(filename, bytes) {
         assert.strictEqual(gpt.cost_usd, 0.007);
     });
 
+    await check('the HF lighteval results are read: the model, every task, its few-shot and its metric', () => {
+        const out = importers.parse(read('lighteval-results.json'), { filename: 'results.json' });
+        assert.strictEqual(out.tool, 'lighteval');
+        assert.strictEqual(out.harness.name, 'lighteval');
+        assert.strictEqual(out.models.length, 1);
+        assert.strictEqual(out.models[0].model, 'HuggingFaceTB/SmolLM2-1.7B-Instruct');
+        assert.strictEqual(out.models[0].provider, 'HuggingFaceTB');
+        assert.strictEqual(out.models[0].tasks.length, 4);
+        const arc = out.models[0].tasks.find((task) => task.task_id === 'arc:challenge');
+        assert.ok(arc, 'the ARC challenge task is there');
+        assert.strictEqual(arc.few_shot, 25, 'the task key carries its few-shot');
+        assert.strictEqual(arc.metric, 'acc');
+        assert.ok(Math.abs(arc.score - 30) < 1e-9, 'the score is out of 100: ' + arc.score);
+        assert.match(out.harness.version, /^[0-9a-f]{7,}$/, 'the lighteval commit is the harness version');
+    });
+
+    await check('the Stanford HELM stats are read with their run spec: model, scenario and few-shot', () => {
+        const out = importers.parse(read('helm-results.json'), { filename: 'stats.json' });
+        assert.strictEqual(out.tool, 'helm');
+        assert.strictEqual(out.harness.name, 'helm');
+        assert.strictEqual(out.models[0].model, 'eleutherai/pythia-1b-v0');
+        assert.strictEqual(out.models[0].provider, 'huggingface');
+        assert.strictEqual(out.models[0].tasks.length, 1);
+        assert.strictEqual(out.models[0].tasks[0].task_id, 'hellaswag');
+        assert.strictEqual(out.models[0].tasks[0].metric, 'quasi_exact_match');
+        assert.strictEqual(out.models[0].tasks[0].few_shot, 5, 'max_train_instances is the few-shot');
+        assert.ok(Math.abs(out.models[0].score - 30) < 1e-9, 'the proportion is read out of 100: ' + out.models[0].score);
+    });
+
     // ── the limits ─────────────────────────────────────────────────────────────────────────────────────────
     await check('a file over 20 MB is refused', () => {
         assert.throws(() => importers.parse(Buffer.alloc(20 * 1024 * 1024 + 1)), /20 MB|too large/i);
@@ -295,6 +327,27 @@ function multipart(filename, bytes) {
         const full = await t.ctx.registry.getRun(runId);
         assert.strictEqual(full.tasks.length, 3, 'the per-task scores came with it');
         assert.strictEqual(runs[0].harness.name, 'inspect-ai');
+    });
+
+    await check('an import keeps the harness, task version, few-shot and seed on the run', async () => {
+        const doc = JSON.parse(read('lighteval-results.json').toString('utf8'));
+        doc.versions = { 'arc:challenge': 3 };
+        doc.config_general.model_config.generation_parameters.seed = 42;
+        const up = await t.ctx.imports.store({
+            owner: alice.subject, subject: alice.subject, filename: 'lighteval-results.json',
+            bytes: Buffer.from(JSON.stringify(doc)),
+        });
+        assert.strictEqual(up.summary.tool, 'lighteval');
+        assert.strictEqual(up.summary.harness.name, 'lighteval');
+        assert.strictEqual(up.summary.models[0].tasks[0].few_shot, 25);
+        assert.strictEqual(up.summary.models[0].tasks[0].task_version, '3');
+        const imported = await t.ctx.imports.commit(up.id, { subject: alice.subject });
+        const run = await t.ctx.registry.getRun(imported.runs[0].id);
+        assert.strictEqual(run.harness.name, 'lighteval', 'the harness name is on the run');
+        assert.strictEqual(run.harness.version, up.summary.harness.version, 'and its version');
+        assert.strictEqual(run.settings.few_shot, 25, 'the few-shot is kept');
+        assert.strictEqual(run.settings.seed, '42', 'the seed is kept');
+        assert.strictEqual(run.settings.task_versions['arc:challenge'], '3', 'the task version is kept');
     });
 
     await check('the file stays private to its owner', async () => {

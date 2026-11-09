@@ -3,6 +3,17 @@
 ## Unreleased
 
 - **The 18+ board (`chat.willing`).** A new adult kind and `GET /api/v1/boards/chat.willing`, marked `adult: true` on the board and every row. It reads OpenVibe.AI's measured refusal and hedge rates (n and Wilson intervals) on the published 60-prompt lawful adult set, plus the abliteration tax for each declared base/abliterated pair: the same objective set on both, with the score difference and its Newcombe interval. A non-willingness type on the adult kind is refused; when AI cannot answer, the board says the measurements are unavailable and invents no rows.
+- **Every Eval Ever (B2).** Bench imports the public EEE datastore (`github.com/evaleval/every_eval_ever`,
+  `evaleval/EEE_datastore`) as *external* results: the model (joined by Report's rule — maker prefix and a date or
+  channel suffix dropped), the harness and its version, the task and its version, few-shot, the metric, the score,
+  the source link and the licence. A record whose licence does not allow redistribution is dropped and counted.
+  The rows live in `bench_eee_records` and are served by `GET /api/v1/external/records` with `external: true`; they
+  never enter Bench's ratings, boards or medians. A weekly, resumable, bounded job (`BENCH_EEE_SYNC`) imports them.
+  Bench's own public runs are exported as EEE `evaluation_run` records at `GET /api/v1/datasets/eee` (JSONL, paged;
+  per-sample scores at `/api/v1/datasets/eee/runs/:id.samples.jsonl`).
+- **Two more harnesses (B7).** HF lighteval and Stanford HELM results join Inspect AI, Harbor, the
+  lm-evaluation-harness and promptfoo. Every import keeps the harness name and version, each task's version, the
+  few-shot and the seed on the run.
 - **The public pages moved to OpenVibe.Report's AI section (2026-11-08).** `/`, `/docs`, `/benchmarks`, `/models/*`, `/compare` and the other page routes answer `301` to `https://openvibe.report/ai` counterparts; the API, MCP, render origin, badges and embeds stay on bench.openvibe.services. New public reads feed Report: `GET /api/v1/runs`, `/api/v1/overview` (with every public model and its last run) and `/api/v1/models/:model/summary` (per-benchmark and per-task medians, cost, recent runs). `/api/v1/benchmarks` now carries each benchmark's runs and last run.
 - **The Exchange arena (`chat.arena`).** A new kind, and a first-party API only OpenVibe.Exchange may call:
   `POST /api/v1/arena/rounds` builds a round from two answers the Exchange already has, and

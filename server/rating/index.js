@@ -79,8 +79,13 @@ const lib = require('./lib');
 // each output as covariates, bootstrap intervals and rank bands.
 const style = require('./style');
 
+// The OpenVibe Index and the holdout gap (stage B3): pure maths, so a test and a page agree on the numbers.
+const stats = require('./stats');
+
 module.exports = {
     eloUpdate, bradleyTerry: lib.bradleyTerry, voterWeights: lib.voterWeights, wilson: lib.wilson, percentile: lib.percentile, pareto, costPerSolved, BASE_ELO, K_DEFAULT,
     style,
     fitRatings: style.fitRatings, rankBands: style.rankBands, styleFeatures: style.styleFeatures, markupCount: style.markupCount,
+    openvibeIndex: stats.openvibeIndex, holdoutGap: stats.holdoutGap, ratingScore: stats.ratingScore,
+    INDEX_WEIGHTS: stats.INDEX_WEIGHTS, RATING_ANCHOR: stats.RATING_ANCHOR,
 };
