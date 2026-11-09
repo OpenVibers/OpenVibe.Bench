@@ -55,6 +55,7 @@ function renderPage(o) {
         history: { type: 'page', title: o.title || SITE_NAME },
         silentLogin: `${o.config.baseUrl}/auth/login?silent=1&next={url}`,
         sessionUrl: '/auth/me',
+        tokenUrl: '/auth/navbar-token',
         loginUrl: '/auth/login?next={path}',
         logoutUrl: '/auth/logout?next={path}',
         notificationsRealtime: true,
