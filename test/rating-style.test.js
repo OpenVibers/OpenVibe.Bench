@@ -86,6 +86,25 @@ function rng(seed) {
         assert.strictEqual(style.bandLabel(1, 1), '1st');
     });
 
+    await check('the fit publishes rank intervals for both boards', async () => {
+        const games = [];
+        for (let i = 0; i < 60; i++) {
+            games.push({ id: 'ra' + i, a: 'alpha', b: 'beta', outcome: 'a', fa: { length: 100, markup: 1 }, fb: { length: 100, markup: 1 } });
+            games.push({ id: 'rb' + i, a: 'beta', b: 'gamma', outcome: 'a', fa: { length: 100, markup: 1 }, fb: { length: 100, markup: 1 } });
+        }
+        const fit = style.fitRatings(games, { bootstrap: 80 });
+        const by = new Map(fit.models.map((m) => [m.model, m]));
+        assert.strictEqual(by.get('alpha').raw.rank, 1);
+        for (const model of fit.models) {
+            for (const cell of [model.raw, model.controlled]) {
+                assert.ok(Number.isInteger(cell.rank) && cell.rank >= 1 && cell.rank <= fit.models.length, model.model + ' rank');
+                assert.ok(Number.isInteger(cell.rank_lo) && cell.rank_lo >= 1, model.model + ' rank_lo');
+                assert.ok(Number.isInteger(cell.rank_hi) && cell.rank_hi <= fit.models.length, model.model + ' rank_hi');
+                assert.ok(cell.rank_lo <= cell.rank_hi, model.model + ' ordered interval');
+            }
+        }
+    });
+
     await check('the style features count length and markup', async () => {
         const f = style.styleFeatures({ html: '<h1>Title</h1><p><strong>bold</strong></p><ul><li>one</li></ul>' });
         assert.ok(f.length > 20, 'length: ' + f.length);
