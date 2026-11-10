@@ -74,8 +74,8 @@ const { boot, check, done } = require('./helpers/boot');
         return { roundId: id, left: a.json().entry.id, right: b.json().entry.id };
     }
 
-    async function seedGames(round, count) {
-        for (let i = 0; i < count; i++) {
+    async function seedGames(round, count, offset = 0) {
+        for (let i = offset; i < offset + count; i++) {
             await t.ctx.s.db.exec(
                 `INSERT INTO bench_judgements (id, round_id, kind_id, judge, method, pair, outcome, subject, voter_kind)
                  VALUES ($1, $2, 'design.page', 'human_pairwise', 'human_pairwise', $3::jsonb, $4, $5, 'person')`,
@@ -83,6 +83,40 @@ const { boot, check, done } = require('./helpers/boot');
             );
         }
     }
+
+    await check('shared ratings withhold nineteen games and agree with the fitted board at twenty', async () => {
+        const before = await t.get('/api/v1/ratings/design.page');
+        assert.strictEqual(before.status, 200, before.text);
+        assert.deepStrictEqual(before.json().board.rows, []);
+        assert.strictEqual(before.json().board.minimum_samples, 20);
+        assert.strictEqual(before.headers.get('access-control-allow-origin'), '*');
+        assert.strictEqual(before.headers.get('cache-control'), 'public, max-age=60');
+        const round = await roundForCategory('ratings-floor');
+        await seedGames(round, 19);
+        assert.deepStrictEqual((await t.get('/api/v1/ratings/design.page?category=ratings-floor')).json().board.rows, []);
+        await seedGames(round, 1, 19);
+        const result = await t.get('/api/v1/ratings/design.page?category=ratings-floor');
+        const rows = result.json().board.rows;
+        assert.strictEqual(rows.length, 2);
+        assert.ok(rows.every((row) => row.games === 20));
+        const board = (await t.get('/api/v1/boards/design.page?category=ratings-floor')).json().board;
+        for (const row of rows) {
+            const fitted = board.rows.find((x) => x.subject === row.subject);
+            for (const field of ['elo', 'games', 'ci_lower', 'ci_upper', 'rank', 'rank_lo', 'rank_hi']) assert.strictEqual(row[field], fitted[field], field);
+        }
+        assert.ok(!result.text.includes('usr_') && !result.text.includes('prompt') && !result.text.includes('html'));
+        const all = (await t.get('/api/v1/ratings/design.page')).json().board.rows;
+        const model = (await t.get('/api/v1/models/alpha-1')).json();
+        assert.deepStrictEqual(model.ratings.find((row) => row.kind_id === 'design.page'), all.find((row) => row.subject === 'alpha-1'));
+        assert.strictEqual(model.ratings_minimum_samples, 20);
+        assert.strictEqual((await t.get('/api/v1/ratings/chat.willing')).status, 404);
+        assert.strictEqual((await t.get('/api/v1/ratings/design.page?category=a&category=b')).status, 400);
+        assert.strictEqual((await t.get('/api/v1/ratings/design.page?category=a%20b')).status, 422);
+        const options = await t.get('/api/v1/ratings/design.page', { method: 'OPTIONS' });
+        assert.strictEqual(options.status, 204);
+        const doc = (await t.get('/openapi.json')).json();
+        assert.ok(doc.paths['/api/v1/ratings/{kindId}'].get);
+    });
 
     await check('a category board appears at 30 games and not at 29', async () => {
         const arcade = await roundForCategory('arcade');

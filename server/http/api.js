@@ -289,6 +289,22 @@ function createApi(ctx) {
     });
 
     // ── Boards, models, datasets ────────────────────────────
+    const ratingsCors = (_req, res, next) => {
+        res.set('Access-Control-Allow-Origin', '*').set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+        res.set('Access-Control-Allow-Headers', 'Accept, Content-Type');
+        next();
+    };
+    r.options('/ratings/:kindId', ratingsCors, (_req, res) => res.status(204).end());
+    r.get('/ratings/:kindId', ratingsCors, async (req, res) => {
+        try {
+            if (req.query.category !== undefined && typeof req.query.category !== 'string') return invalid(res, 'Use one task category.');
+            const board = await bench.ratings(String(req.params.kindId || ''), { category: req.query.category || 'all' });
+            if (!board) return problem(res, 404, 'bench.kind_not_found', 'No public rating for this kind.');
+            res.set('Cache-Control', 'public, max-age=60');
+            return res.json({ board });
+        } catch (err) { return failed(res, err); }
+    });
+
     r.get('/boards/:kindId', async (req, res) => {
         try {
             const kindId = String(req.params.kindId || '');
