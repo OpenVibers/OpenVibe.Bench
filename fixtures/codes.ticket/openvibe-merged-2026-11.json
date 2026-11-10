@@ -1,0 +1,326 @@
+{
+  "format": "bench.codes-ticket-suite@1",
+  "suite": "openvibe-merged-2026-11",
+  "title": "Twelve merged OpenVibe tickets",
+  "description": "The first AL8 gate suite: twelve small tickets from merged OpenVibe pull requests across Bench, Codes, AI, Actor, Exchange, Report and Network. Each goal is the merged change in words; each check is the pull request's own test, applied only after the worker stops. Base is the merge commit's parent, so the test fails before the change and passes after it.",
+  "kind": "codes.ticket",
+  "models": [
+    "deepseek-flash",
+    "local"
+  ],
+  "trials": 3,
+  "tickets": [
+    {
+      "id": "bench-158-navbar-token",
+      "goal": "The shared navbar can open Messages in Dock Chats in place: the signed-in person's verified Network access token is available through a same-origin, no-store GET /auth/navbar-token route, while /auth/me stays token-free.",
+      "check": {
+        "kind": "command",
+        "value": "node test/sso.test.js"
+      },
+      "budget": {
+        "tokens": 1000000,
+        "turns": 30,
+        "active_minutes": 6
+      },
+      "no_progress_limit": 4,
+      "fixture": {
+        "repo": "https://github.com/OpenVibers/OpenVibe.Bench",
+        "ref": "b7ca03eea0f20dc933da1b9c8c8035c2d8f2f52c",
+        "check_patch": "diff --git a/test/sso.test.js b/test/sso.test.js\nindex 44dd1bf..d9ece5a 100644\n--- a/test/sso.test.js\n+++ b/test/sso.test.js\n@@ -53,6 +53,11 @@ const cookieJar = (res) => res.headers.getSetCookie().map((c) => c.split(';')[0]\n         const me = await t.get('/auth/me', { cookie: `ov_token=${at}` });\n         assert.strictEqual(me.json().user.username, 'kim');\n         assert.ok(!me.text.includes(at), '/auth/me never returns the token');\n+        const nav = await t.get('/auth/navbar-token', { cookie: `ov_token=${at}` });\n+        assert.strictEqual(nav.status, 200);\n+        assert.strictEqual(nav.json().token, at, 'the Dock receives the verified Network token');\n+        assert.strictEqual(nav.headers.get('cache-control'), 'private, no-store');\n+        assert.strictEqual((await t.get('/auth/navbar-token')).status, 401, 'a guest receives no token');\n     });\n \n     await check('the old cookie is still the session, so nobody is signed out by the move', async () => {\n",
+        "check_timeout_ms": 180000
+      },
+      "source": {
+        "repository": "OpenVibers/OpenVibe.Bench",
+        "pull_request": 158,
+        "merge_commit": "3b2a91896b5d384e3f685e29e427b324ae93db5f",
+        "merged_at": "2026-11-09T06:55:42Z"
+      }
+    },
+    {
+      "id": "codes-351-prompt-prefix",
+      "goal": "Two task runs through the coding agent's tool loop send the same model, system message and tool schemas, in a fixed order, so a provider caches one prompt prefix; only the user message differs between tasks.",
+      "check": {
+        "kind": "command",
+        "value": "node test/harness-prompt-prefix.test.js"
+      },
+      "budget": {
+        "tokens": 1000000,
+        "turns": 40,
+        "active_minutes": 6
+      },
+      "no_progress_limit": 4,
+      "fixture": {
+        "repo": "https://github.com/OpenVibers/OpenVibe.Codes",
+        "ref": "19721715ed45fd669ca6e7eb5d9737c2fa9dc8f8",
+        "check_patch": "diff --git a/test/harness-prompt-prefix.test.js b/test/harness-prompt-prefix.test.js\nnew file mode 100644\nindex 0000000..bb0ba2d\n--- /dev/null\n+++ b/test/harness-prompt-prefix.test.js\n@@ -0,0 +1,73 @@\n+'use strict';\n+/**\n+ * The prompt prefix is byte-identical between two different tasks (stage S3, cache-stable prompts): the system message\n+ * and the tool schemas never carry the task, tools come in a fixed name order, and only the user message differs.\n+ */\n+const assert = require('assert');\n+const fs = require('fs');\n+const os = require('os');\n+const path = require('path');\n+const http = require('http');\n+const { createHarness } = require('../harness');\n+const { createStore } = require('../harness/sessions');\n+const { SYSTEM } = require('../harness/adapters/api');\n+const { check, done } = require('./helpers/boot');\n+\n+/** A chat-completions server that records each request and always answers with a plain reply. */\n+async function mockApi() {\n+    const requests = [];\n+    const server = http.createServer((req, res) => {\n+        let body = '';\n+        req.on('data', (d) => { body += d; });\n+        req.on('end', () => {\n+            requests.push(JSON.parse(body || '{}'));\n+            res.writeHead(200, { 'content-type': 'application/json' });\n+            res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'done' } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));\n+        });\n+    });\n+    await new Promise((r) => server.listen(0, '127.0.0.1', r));\n+    return { url: `http://127.0.0.1:${server.address().port}`, requests, close: () => new Promise((r) => server.close(r)) };\n+}\n+\n+const collect = async (run) => { const out = []; for await (const e of run) out.push(e); return out; };\n+/** The stable prefix of one request as it is serialized: the model, the system message and the tools, in that order. */\n+const prefixOf = (body) => JSON.stringify({ model: body.model, messages: [body.messages[0]], tools: body.tools, tool_choice: body.tool_choice });\n+\n+(async () => {\n+    const api = await mockApi();\n+    try {\n+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'codes-prefix-'));\n+        const work = path.join(dir, 'work');\n+        fs.mkdirSync(work, { recursive: true });\n+        // An empty environment: the harness reads its base url and model from here, never from the machine's own.\n+        const env = { PATH: '/nonexistent', OPENVIBE_CODES_HOME: path.join(dir, 'home'), OPENVIBE_CODES_BASE_URL: api.url, OPENVIBE_CODES_MODEL: 'tiny', OPENVIBE_CODES_API_KEY: 'k-123' };\n+        const h = createHarness({ env, store: createStore({ env }) });\n+\n+        await check('the system message never carries the task or a date', async () => {\n+            assert.ok(SYSTEM.trim().length > 100);\n+            assert.ok(!/\\d{4}-\\d{2}-\\d{2}/.test(SYSTEM), 'no date in the stable system message');\n+        });\n+\n+        await check('two tasks send the same model, system message and tools; only the prompt differs', async () => {\n+            await collect(h.run({ prompt: 'rename name to count', agent: 'openai-compatible', cwd: work, permission: 'edit', handoff: false }));\n+            await collect(h.run({ prompt: 'a much longer second task about the same repository', agent: 'openai-compatible', cwd: work, permission: 'edit', handoff: false }));\n+            assert.strictEqual(api.requests.length, 2);\n+            const [a, b] = api.requests;\n+            assert.strictEqual(prefixOf(a), prefixOf(b), 'the serialized prefix is byte-identical');\n+            assert.strictEqual(a.messages[0].role, 'system');\n+            assert.strictEqual(a.messages[1].role, 'user');\n+            assert.strictEqual(a.messages[1].content, 'rename name to count');\n+            assert.strictEqual(b.messages[1].content, 'a much longer second task about the same repository');\n+        });\n+\n+        await check('tool schemas serialize in a fixed name order', async () => {\n+            const names = api.requests[0].tools.map((t) => t.function.name);\n+            assert.deepStrictEqual(names, [...names].sort(), 'tools are offered in name order');\n+            assert.deepStrictEqual(names, ['edit_file', 'grep', 'list_dir', 'read_file', 'write_file']);\n+            assert.strictEqual(JSON.stringify(api.requests[0].tools), JSON.stringify(api.requests[1].tools));\n+        });\n+    } finally {\n+        await api.close();\n+        done();\n+    }\n+})();\n",
+        "check_timeout_ms": 180000
+      },
+      "source": {
+        "repository": "OpenVibers/OpenVibe.Codes",
+        "pull_request": 351,
+        "merge_commit": "52381fb2bf6267b844536413446a00d6f4a4aa43",
+        "merged_at": "2026-11-09T21:59:35Z"
+      }
+    },
+    {
+      "id": "codes-314-who-leads",
+      "goal": "The composer's \"Who leads\" choice names the person's own saved setting and is the option selected; a person who never chose is not pinned to Opus when the Settings page is saved untouched.",
+      "check": {
+        "kind": "command",
+        "value": "node test/conductor.test.js"
+      },
+      "budget": {
+        "tokens": 1000000,
+        "turns": 40,
+        "active_minutes": 6
+      },
+      "no_progress_limit": 4,
+      "fixture": {
+        "repo": "https://github.com/OpenVibers/OpenVibe.Codes",
+        "ref": "c7320335b35d2998134ea7bc131aa921331cd5d9",
+        "check_patch": "diff --git a/test/conductor.test.js b/test/conductor.test.js\nindex d032e17..79ee775 100644\n--- a/test/conductor.test.js\n+++ b/test/conductor.test.js\n@@ -196,6 +196,12 @@ const DEVICE = 'dev_01J8Z3Q4R5S6T7V8W9X0Y1Z2N1';\n             const res = await get('/conductor');\n             assert.strictEqual(res.status, 200);\n             assert.match(res.text, /<select name=\"who\" data-c4-model>/, 'who leads is a list');\n+            // The first option is the person's own setting, said by name, and it is the one selected: the composer never\n+            // claims a default the person changed, and no other leader is preselected.\n+            assert.match(res.text, /<select name=\"who\" data-c4-model><option value=\"\">Your setting: [^<]+<\\/option>/, 'the first choice names the setting');\n+            const whoList = res.text.split('<select name=\"who\" data-c4-model>')[1].split('</select>')[0];\n+            assert.ok(!/ selected/.test(whoList), 'nothing else is preselected');\n+            assert.ok(!res.text.includes(\"Today's choice\"), 'no \"Today\\'s choice\" wording');\n             for (const label of ['Claude Code · Opus', 'Claude Code · Sonnet', 'Codex', 'OpenCode', 'DeepSeek']) assert.ok(res.text.includes(label), `${label} is offered`);\n             assert.match(res.text, /data-c4-folder-pick/, 'the recent folders are a choice beside the typed path');\n             assert.ok(res.text.includes(`data-machine=\"${NODE}\"`), 'this conductor&rsquo;s folder is one, on its machine');\n",
+        "check_timeout_ms": 180000
+      },
+      "source": {
+        "repository": "OpenVibers/OpenVibe.Codes",
+        "pull_request": 314,
+        "merge_commit": "092d1952b27a5dfe3cb0edc22624f5cf6097e23e",
+        "merged_at": "2026-11-07T13:06:20Z"
+      }
+    },
+    {
+      "id": "ai-387-space-components",
+      "goal": "The space.app.build template accepts an optional components input (up to 20,000 characters) and, when present, puts it in the system prompt as the design.component@1 interface vocabulary with the rule that every major part carries data-ov-component; without it the prompt is exactly as before.",
+      "check": {
+        "kind": "command",
+        "value": "node test/space-workflows.test.js"
+      },
+      "budget": {
+        "tokens": 1000000,
+        "turns": 40,
+        "active_minutes": 6
+      },
+      "no_progress_limit": 4,
+      "fixture": {
+        "repo": "https://github.com/OpenVibers/OpenVibe.AI",
+        "ref": "13ffb0f203b182c72960a3af8f5c37fefa53af0a",
+        "check_patch": "diff --git a/test/space-workflows.test.js b/test/space-workflows.test.js\nindex eea1494..a4509da 100644\n--- a/test/space-workflows.test.js\n+++ b/test/space-workflows.test.js\n@@ -23,6 +23,13 @@ t.test('the builder\\'s prompt: the SDK reference, and the current files when cha\n     assert.match(sys, /OV\\.fn\\(name, body\\)/);\n     assert.match(sys, /never request\\.user or request\\.ov/, 'the visitor is on ov, not on the request');\n     assert.ok(!/There is no server code/.test(sys));\n+    assert.match(sys, /design\\.component@1/, 'the registry is named as the interface vocabulary');\n+    const withComponents = render(sys, { components: 'sheet — A modal task surface. Web: kit.sheet()' });\n+    assert.match(withComponents, /mark each major part with data-ov-component/);\n+    assert.match(withComponents, /sheet — A modal task surface/);\n+    assert.ok(!/\\{\\{#components\\}\\}/.test(withComponents), 'the section is rendered away');\n+    const prepWithRegistry = PREPARE['space.app.build']({ prompt: 'a pizza poll', components: 'sheet — A modal task surface.' });\n+    assert.strictEqual(prepWithRegistry.vars.components, 'sheet — A modal task surface.');\n     const prep = PREPARE['space.app.build']({ prompt: 'a poll about pizza' });\n     assert.ok(prep.jsonSchema && prep.jsonSchema.properties.files && !/maxLength|maxItems/.test(JSON.stringify(prep.jsonSchema)), 'the model answers in the uncapped, non-strict schema');\n     const fresh = render(tpl('space.app.build').user_prompt, prep.vars);\n",
+        "check_timeout_ms": 180000
+      },
+      "source": {
+        "repository": "OpenVibers/OpenVibe.AI",
+        "pull_request": 387,
+        "merge_commit": "5fd137763be08137d2c7e928dcce50ad1608c2f0",
+        "merged_at": "2026-11-09T21:48:50Z"
+      }
+    },
+    {
+      "id": "actor-390-prompt-prefix",
+      "goal": "Two assemblies of the agent's system prompt with different dates and plans share the whole rules prefix byte for byte, and the tool definitions serialize identically, because today's date, the plan, the ledger and the demoted-tools note come after the rules.",
+      "check": {
+        "kind": "command",
+        "value": "node test/runtime-prompt-prefix.test.js"
+      },
+      "budget": {
+        "tokens": 1000000,
+        "turns": 40,
+        "active_minutes": 6
+      },
+      "no_progress_limit": 4,
+      "fixture": {
+        "repo": "https://github.com/OpenVibers/OpenVibe.Actor",
+        "ref": "beb69b131c2dd20e30a5c04b1bfaf245408f14d7",
+        "check_patch": "diff --git a/test/runtime-prompt-prefix.test.js b/test/runtime-prompt-prefix.test.js\nnew file mode 100644\nindex 0000000..2694c55\n--- /dev/null\n+++ b/test/runtime-prompt-prefix.test.js\n@@ -0,0 +1,55 @@\n+'use strict';\n+/**\n+ * The prompt prefix stays byte-identical between tasks (stage S3, cache-stable prompts).\n+ *\n+ *   - the system prompt keeps its rules first and today's date, the plan, the ledger and a demoted-tools note last,\n+ *     so two tasks share the whole stable prefix and a provider's cache breakpoint never covers a date;\n+ *   - the tool definitions serialize the same way on every assembly, so a cache is not lost to tool order.\n+ */\n+const fs = require('fs');\n+const os = require('os');\n+const path = require('path');\n+const assert = require('assert');\n+const { SYSTEM } = require('../server/runtime/loop');\n+const { createRegistry } = require('../server/runtime/tools');\n+\n+const results = [];\n+const ok = async (name, fn) => { try { await fn(); console.log(`  ✓ ${name}`); } catch (e) { results.push(e); console.log(`  ✗ ${name}\\n      ${(e.stack || String(e)).split('\\n').slice(0, 8).join('\\n      ')}`); } };\n+\n+function tempTools(files) {\n+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'actor-prefix-'));\n+    for (const [name, body] of Object.entries(files)) fs.writeFileSync(path.join(dir, name), body);\n+    return dir;\n+}\n+const tool = (name) => `module.exports = { name: ${JSON.stringify(name)}, description: ${JSON.stringify(`The ${name} tool.`)}, input: { type: 'object', properties: { q: { type: 'string' } } }, scope: 'public', run: async () => ({ text: 'ok' }) };\\n`;\n+\n+(async () => {\n+    await ok('two tasks share the whole rules prefix; the date and the plan come after it', async () => {\n+        const a = SYSTEM({ date: '2026-11-09', plan: '1. Look up the price' });\n+        const b = SYSTEM({ date: '2027-01-01', plan: '1. Compare two offers', ledger: 'Progress: 1 of 2', note: 'Offered last: slow_tool.' });\n+        const at = a.indexOf('Today is ');\n+        const stableAt = a.indexOf('Your plan:');\n+        assert.ok(at > 0, 'the date is in the prompt');\n+        assert.ok(a.indexOf('How the answer is grounded:') < stableAt, 'the rules come before the plan');\n+        assert.ok(stableAt > 1500, `the stable prefix is the whole rules block (${stableAt} bytes)`);\n+        assert.strictEqual(a.slice(0, stableAt), b.slice(0, stableAt), 'the rules prefix is byte-identical between two tasks');\n+        assert.ok(at > stableAt && b.indexOf('Today is ') > stableAt, 'the date comes after the rules');\n+        assert.strictEqual(a.split('Today is ').length, 2, 'the date appears once');\n+        assert.ok(b.indexOf('1. Compare two offers') < b.indexOf('Today is '), 'the plan stays before the date');\n+        assert.ok(b.indexOf('Progress: 1 of 2') < b.indexOf('Today is '), 'the ledger stays before the date');\n+        assert.ok(b.indexOf('Offered last: slow_tool.') < b.indexOf('Today is '), 'the demoted-tools note stays before the date');\n+    });\n+\n+    await ok('tool definitions serialize identically on every assembly', async () => {\n+        const dir = tempTools({ 'zebra.js': tool('zebra'), 'alpha.js': tool('alpha'), 'middle.js': tool('middle') });\n+        const first = createRegistry({ dir, strict: true, log: { warn() {} } }).definitions({ requester: 'user:usr_1' });\n+        const second = createRegistry({ dir, strict: true, log: { warn() {} } }).definitions({ requester: 'user:usr_1' });\n+        assert.strictEqual(JSON.stringify(first), JSON.stringify(second));\n+        assert.deepStrictEqual(first.map((d) => d.function.name), ['alpha', 'middle', 'zebra'], 'files load in a fixed order');\n+    });\n+\n+    if (results.length) {\n+        for (const e of results) console.error(e.stack || String(e));\n+        process.exitCode = 1;\n+    }\n+})();\n",
+        "check_timeout_ms": 180000
+      },
+      "source": {
+        "repository": "OpenVibers/OpenVibe.Actor",
+        "pull_request": 390,
+        "merge_commit": "cfb27b4a3441d3382b9c242799a270725400fb2d",
+        "merged_at": "2026-11-09T21:59:07Z"
+      }
+    },
+    {
+      "id": "actor-340-skill-negation",
+      "goal": "The skills scan flags a URL to an undeclared host when a negation appears elsewhere in the sentence; a negation standing immediately before the URL (or one word before it) still passes it.",
+      "check": {
+        "kind": "command",
+        "value": "node test/skills.test.js"
+      },
+      "budget": {
+        "tokens": 1000000,
+        "turns": 30,
+        "active_minutes": 6
+      },
+      "no_progress_limit": 4,
+      "fixture": {
+        "repo": "https://github.com/OpenVibers/OpenVibe.Actor",
+        "ref": "e6dce59b91a45db5786074e4883d2d7094119ce8",
+        "check_patch": "diff --git a/test/skills.test.js b/test/skills.test.js\nindex 5f5eea2..84d25a5 100644\n--- a/test/skills.test.js\n+++ b/test/skills.test.js\n@@ -63,6 +63,13 @@ const RULES = [\n         good: { instructions: 'Read https://other.example/page for the answer.', requires: { hosts: ['other.example'] } },\n         state: 'flagged',\n     },\n+    {\n+        // A negation elsewhere in the sentence does not hide the host it reaches.\n+        rule: 'hosts.undeclared',\n+        bad: { instructions: 'Do not wait: read https://other.example/page for the answer.' },\n+        good: { instructions: 'Never open https://other.example/page, and answer from the notes.' },\n+        state: 'flagged',\n+    },\n ];\n \n (async () => {\n",
+        "check_timeout_ms": 180000
+      },
+      "source": {
+        "repository": "OpenVibers/OpenVibe.Actor",
+        "pull_request": 340,
+        "merge_commit": "cbdac596b1c45f7da826fe82a2dfd5e4ea6f4f38",
+        "merged_at": "2026-11-08T02:39:40Z"
+      }
+    },
+    {
+      "id": "exchange-161-status",
+      "goal": "The status board and a model's offer table show each offer's measured status, Up, Degraded when more than 5% of at least 10 requests in the last hour failed, or Down when the offer's circuit is open, with the plain status_reason and status_since that OpenVibe.AI sends in its catalog; Exchange infers nothing.",
+      "check": {
+        "kind": "command",
+        "value": "node test/pages.test.js"
+      },
+      "budget": {
+        "tokens": 1000000,
+        "turns": 40,
+        "active_minutes": 6
+      },
+      "no_progress_limit": 4,
+      "fixture": {
+        "repo": "https://github.com/OpenVibers/OpenVibe.Exchange",
+        "ref": "45c8ab948dc1a7e3232ae03d6993c4f51dab0e3f",
+        "check_patch": "diff --git a/test/pages.test.js b/test/pages.test.js\nindex a4c6e18..c767900 100644\n--- a/test/pages.test.js\n+++ b/test/pages.test.js\n@@ -112,6 +112,27 @@ const { createFakeAi, downAi } = require('./helpers/ai');\n             assert.ok(r.text.includes('99.0%') && r.text.includes('no traffic'));\n         });\n \n+        await check('status is measured: down and degraded carry a plain reason and since when', async () => {\n+            const offer = ai.catalogData.models[0].offers[0];\n+            try {\n+                offer.status = 'down';\n+                offer.status_reason = 'the provider says the account is out of credit';\n+                offer.status_since = '2026-11-09T09:00:00.000Z';\n+                const down = await t.get('/status');\n+                assert.ok(down.text.includes('Down') && down.text.includes('the provider says the account is out of credit'), 'the status page says why');\n+                assert.ok(down.text.includes('since 2026-11-09 09:00 UTC'), 'and since when');\n+                offer.status = 'degraded';\n+                offer.status_reason = 'too many errors in the last hour';\n+                offer.status_since = '2026-11-09T10:00:00.000Z';\n+                const degraded = await t.get('/m/deepseek/deepseek-chat');\n+                assert.ok(degraded.text.includes('Degraded') && degraded.text.includes('too many errors in the last hour'), 'the model page shows the measured status');\n+            } finally {\n+                offer.status = 'up';\n+                offer.status_reason = null;\n+                offer.status_since = null;\n+            }\n+        });\n+\n         await check('an unknown page is 404, and a personal page is never cached', async () => {\n             const r = await t.get('/nope');\n             assert.strictEqual(r.status, 404);\n",
+        "check_timeout_ms": 180000
+      },
+      "source": {
+        "repository": "OpenVibers/OpenVibe.Exchange",
+        "pull_request": 161,
+        "merge_commit": "277caa6ded619bf105fd4b5b36da83c2a2d70040",
+        "merged_at": "2026-11-09T22:49:57Z"
+      }
+    },
+    {
+      "id": "exchange-160-pricing-console",
+      "goal": "The owner console has owner-only JSON read endpoints for Providers, Models and the Pricebook, plus provider-settings and model-override form routes that forward audited changes to OpenVibe.AI; provider key values never appear in console data, and the existing owner and same-origin checks stay.",
+      "check": {
+        "kind": "command",
+        "value": "node test/console-merge.test.js"
+      },
+      "budget": {
+        "tokens": 1000000,
+        "turns": 40,
+        "active_minutes": 6
+      },
+      "no_progress_limit": 4,
+      "fixture": {
+        "repo": "https://github.com/OpenVibers/OpenVibe.Exchange",
+        "ref": "a5c516f7a7328972bcd17aa98a730d6b1ba7fa8f",
+        "check_patch": "diff --git a/test/console-merge.test.js b/test/console-merge.test.js\nindex fd3a083..575860f 100644\n--- a/test/console-merge.test.js\n+++ b/test/console-merge.test.js\n@@ -24,7 +24,7 @@ app.use(createConsoleRoutes({\n     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));\n     const base = `http://127.0.0.1:${server.address().port}`;\n     try {\n-        const consolePaths = ['/console', ...Object.keys(READS).map((section) => `/console/${section}`), '/console/providers/new', '/console/providers/openai', '/console/gpus/model-a/quote'];\n+        const consolePaths = ['/console', ...Object.keys(READS).map((section) => `/console/${section}`), '/console/providers/new', '/console/providers/openai', '/console/gpus/model-a/quote', '/console/data/providers', '/console/data/models', '/console/data/pricebook'];\n         for (const path of consolePaths) for (const headers of [{}, { 'x-test-role': 'user' }, { 'x-test-role': 'admin' }]) {\n             const response = await fetch(`${base}${path}`, { headers });\n             assert.strictEqual(response.status, 404, `${path}: signed-out people and non-owners see no console route`);\n@@ -39,6 +39,12 @@ app.use(createConsoleRoutes({\n             const page = await fetch(`${base}${path}`, { headers: { 'x-test-role': 'owner' } });\n             assert.strictEqual(page.status, 200, `${path}: ${await page.text()}`);\n         }\n+        for (const section of ['providers', 'models', 'pricebook']) {\n+            const data = await fetch(`${base}/console/data/${section}`, { headers: { 'x-test-role': 'owner' } });\n+            assert.strictEqual(data.status, 200);\n+            assert.ok((data.headers.get('content-type') || '').includes('application/json'));\n+            assert.ok(!JSON.stringify(await data.json()).includes(fakeSecret), `${section} data omits key values`);\n+        }\n         const keyWrite = await fetch(`${base}/console/providers/openai/key`, {\n             method: 'POST', headers: { 'x-test-role': 'owner', Origin: 'https://openvibe.exchange', 'content-type': 'application/x-www-form-urlencoded' },\n             body: new URLSearchParams({ api_key: fakeSecret }), redirect: 'manual',\n@@ -55,6 +61,19 @@ app.use(createConsoleRoutes({\n         assert.strictEqual(createProvider.status, 303);\n         assert.ok(writes.some((write) => write.path === '/api/v1/admin/console/providers' && write.body.api_key === fakeSecret), 'provider creation uses AI JSON admin API');\n \n+        const providerSettings = await fetch(`${base}/console/providers/groq/settings`, {\n+            method: 'POST', headers: { 'x-test-role': 'owner', Origin: 'https://openvibe.exchange', 'content-type': 'application/x-www-form-urlencoded' },\n+            body: new URLSearchParams({ status: 'active', provider_access: 'AUTHORIZED_WHOLESALE', preference_order: '7', markup_percent: '12.5', uncensored: '1' }), redirect: 'manual',\n+        });\n+        assert.strictEqual(providerSettings.status, 303);\n+        assert.ok(writes.some((write) => write.path === '/api/v1/providers/groq' && write.body.markup_percent === 12.5 && write.body.uncensored === true));\n+        const modelOverride = await fetch(`${base}/console/models/groq/openai%2Fgpt-oss-120b/override`, {\n+            method: 'POST', headers: { 'x-test-role': 'owner', Origin: 'https://openvibe.exchange', 'content-type': 'application/x-www-form-urlencoded' },\n+            body: new URLSearchParams({ input_per_million: '0.2', cached_per_million: '', output_per_million: '0.7', reason: 'Owner approved adjustment' }), redirect: 'manual',\n+        });\n+        assert.strictEqual(modelOverride.status, 303);\n+        assert.ok(writes.some((write) => write.path === '/api/v1/models/groq/openai%2Fgpt-oss-120b' && write.body.owner_override.reason === 'Owner approved adjustment'));\n+\n     } finally { await new Promise((resolve) => server.close(resolve)); }\n     process.stdout.write('console-merge: owner gate and secret redaction passed\\n');\n })().catch((err) => { process.stderr.write(`${err.stack || err}\\n`); process.exitCode = 1; });\n",
+        "check_timeout_ms": 180000
+      },
+      "source": {
+        "repository": "OpenVibers/OpenVibe.Exchange",
+        "pull_request": 160,
+        "merge_commit": "418c289149ce2ed28e6a041d3ac9cde41f025fbf",
+        "merged_at": "2026-11-09T20:19:25Z"
+      }
+    },
+    {
+      "id": "report-147-dataset-jsonld",
+      "goal": "Report announces its tables as an open dataset through Dataset JSON-LD on / and /stats, built with the shared seo.jsonLd.dataset builder: name, description, creator OpenVibe, keywords and a distribution list pointing at /api/v1/stats, /api/v1/ai/results and /api/v1/rundown/topics.",
+      "check": {
+        "kind": "command",
+        "value": "node test/pages.test.js"
+      },
+      "budget": {
+        "tokens": 1000000,
+        "turns": 30,
+        "active_minutes": 6
+      },
+      "no_progress_limit": 4,
+      "fixture": {
+        "repo": "https://github.com/OpenVibers/OpenVibe.Report",
+        "ref": "b5b64d0ac69f555e12f72be0acfab01b311d38c7",
+        "check_patch": "diff --git a/test/pages.test.js b/test/pages.test.js\nindex 8bd6c54..38e71ee 100644\n--- a/test/pages.test.js\n+++ b/test/pages.test.js\n@@ -70,6 +70,19 @@ const { boot, check, done, defaults } = require('./helpers/boot');\n             assert.ok(org && Array.isArray(org.sameAs) && org.sameAs.includes('https://github.com/OpenVibers'), 'Organization');\n         });\n \n+        await check('the home and the stats page carry Dataset JSON-LD with the JSON endpoints', async () => {\n+            for (const path of ['/', '/stats']) {\n+                const r = await t.get(path);\n+                const ld = [...r.text.matchAll(/<script type=\"application\\/ld\\+json\">([\\s\\S]*?)<\\/script>/g)].map((m) => JSON.parse(m[1])).flatMap((b) => b['@graph'] || [b]);\n+                const dataset = ld.find((x) => x['@type'] === 'Dataset');\n+                assert.ok(dataset, `${path}: Dataset`);\n+                assert.strictEqual(dataset.url, 'https://openvibe.report/stats', `${path}: Dataset url`);\n+                const urls = (dataset.distribution || []).map((d) => d.contentUrl);\n+                assert.ok(urls.includes('https://openvibe.report/api/v1/stats'), `${path}: stats JSON`);\n+                assert.ok(urls.includes('https://openvibe.report/api/v1/ai/results'), `${path}: AI JSON`);\n+            }\n+        });\n+\n         await check('The Rundown pages name OpenVibe.Live as canonical and mount the Frame for service report', async () => {\n             const r = await t.get('/rundown/t/seattle');\n             assert.ok(r.text.includes('<link rel=\"canonical\" href=\"https://openvibe.live/rundown/t/seattle\">'), 'the topic is Live\\'s page');\n",
+        "check_timeout_ms": 180000
+      },
+      "source": {
+        "repository": "OpenVibers/OpenVibe.Report",
+        "pull_request": 147,
+        "merge_commit": "87971dc92196d069a6c967b76304283f52d91595",
+        "merged_at": "2026-11-09T09:55:25Z"
+      }
+    },
+    {
+      "id": "network-747-motion",
+      "goal": "A display preference save keeps motion: full and motion: off as well as auto and reduced, reads each of the four back from the active theme, and still drops an unknown value.",
+      "check": {
+        "kind": "command",
+        "value": "node --import ./test/helpers/pg-preload.mjs test/themes-review.test.js"
+      },
+      "budget": {
+        "tokens": 1000000,
+        "turns": 30,
+        "active_minutes": 6
+      },
+      "no_progress_limit": 4,
+      "fixture": {
+        "repo": "https://github.com/OpenVibers/OpenVibe.Network",
+        "ref": "40712202526e8ee21de31d636a649db99dd6cb58",
+        "check_patch": "diff --git a/test/themes-review.test.js b/test/themes-review.test.js\nindex b2dd68a..7abc6b9 100644\n--- a/test/themes-review.test.js\n+++ b/test/themes-review.test.js\n@@ -119,6 +119,13 @@ const token = async (id) => signToken(await db.prepare('SELECT * FROM users WHER\n     assert.strictEqual(r.body.display.icons, 'solid', 'a person who prefers solid icons keeps that on every site');\n     assert.strictEqual((await call('GET', '/api/themes/me/active', { as: 2 })).body.display.icons, 'solid');\n     assert.strictEqual((await call('PUT', '/api/themes/me/display', { as: 2, body: { icons: 'outline' } })).body.display.icons, undefined, 'only auto, line or solid');\n+    // Motion (openvibe-shared 4.183.0): auto, full, reduced or off follows the account, and each one reads back.\n+    for (const motion of ['auto', 'full', 'reduced', 'off']) {\n+        r = await call('PUT', '/api/themes/me/display', { as: 2, body: { motion } });\n+        assert.strictEqual(r.body.display.motion, motion, `motion ${motion} is kept`);\n+        assert.strictEqual((await call('GET', '/api/themes/me/active', { as: 2 })).body.display.motion, motion, `motion ${motion} reads back`);\n+    }\n+    assert.strictEqual((await call('PUT', '/api/themes/me/display', { as: 2, body: { motion: 'calm' } })).body.display.motion, undefined, 'only auto, full, reduced or off');\n \n     // ── The site switcher's pinned and recent sites follow the account (migration 0029) ──\n     r = await call('GET', '/api/themes/me/sites', { as: 2 });\n",
+        "check_timeout_ms": 240000
+      },
+      "source": {
+        "repository": "OpenVibers/OpenVibe.Network",
+        "pull_request": 747,
+        "merge_commit": "b9c60b27ab51d18d5dbbe6542c816345bfe3adca",
+        "merged_at": "2026-11-10T02:44:47Z"
+      }
+    },
+    {
+      "id": "network-736-link-send",
+      "goal": "openvibe.link's Send widget reads /auth/me before it asks for send keys, so a signed-out visitor sees its existing sign-in line with no 401 from /api/v1/me/nodes/send-keys.",
+      "check": {
+        "kind": "command",
+        "value": "node --import ./test/helpers/pg-preload.mjs test/security-ssrf.test.js"
+      },
+      "budget": {
+        "tokens": 1000000,
+        "turns": 40,
+        "active_minutes": 6
+      },
+      "no_progress_limit": 4,
+      "fixture": {
+        "repo": "https://github.com/OpenVibers/OpenVibe.Network",
+        "ref": "87944111b4aece1a8469a31ead30535636aa3553",
+        "check_patch": "diff --git a/test/security-ssrf.test.js b/test/security-ssrf.test.js\nindex bb800f3..71da23e 100644\n--- a/test/security-ssrf.test.js\n+++ b/test/security-ssrf.test.js\n@@ -133,7 +133,7 @@ const REVIEWED = {\n     'server/admin/review-queue.js fetch': [2, 'the reviewer queue: Wiki/Blog/News/Trade internal URLs from operator config (loopback defaults), fixed /api/v1/review-queue and review paths, ids percent-encoded, the signed-in staff member\\'s own token, staff only'],\n     'server/admin/ai-config-proxy.js fetch': [1, 'the owner settings proxy and the Setup tab (server/admin/setup.js calls through it): the reachable services\\' internal URLs from config.services (operator-set, loopback defaults), fixed /internal/config and AI /api/v1/providers paths, service, namespace and key checked against the known names, owner only'],\n     'server/integrations/github.js fetch': [1, 'fixed host api.github.com (asserted below)'],\n-    'server/link/send.js fetch': [3, 'browser-only Link Send requests to fixed same-origin machine-key and transfer routes; page input supplies file bytes, never a URL or destination host'],\n+    'server/link/send.js fetch': [4, 'browser-only Link Send requests to fixed same-origin routes (the session read, machine keys and transfers); page input supplies file bytes, never a URL or destination host'],\n     'server/notifications/email-service.js http.request': [1, 'fixed host api.resend.com'],\n     'server/actions/index.js fetch': [7, 'The Action Center: OpenVibe.Actor, OpenVibe.Codes and OpenVibe.AI only (OV_ACTOR_INTERNAL_URL, OV_CODES_INTERNAL_URL, OV_AI_INTERNAL_URL, loopback); the paths are fixed (the decide route, the cancel route, the retry route of Actor or AI, Actor\\'s public GET /api/v1/skills catalogue, and Actor\\'s POST /api/v1/runs for a catalogue skill whose id must match the skill id pattern), the subject is the signed-in person\\'s own usr_ id, and an item id must match [A-Za-z0-9_-]{1,80}'],\n     'server/profile/public.js fetch': [6, 'OpenVibe.Inventory, Quest and Play use operator-configured internal URLs and fixed paths with a checked usr_ id. Public place reads use only the configured Live, Community and Space service URLs, fixed public paths, encoded canonical usernames, 2 s timeouts and no user-supplied host or token; Space results are restricted to the exact owner and Published cards'],\n",
+        "check_timeout_ms": 240000
+      },
+      "source": {
+        "repository": "OpenVibers/OpenVibe.Network",
+        "pull_request": 736,
+        "merge_commit": "ec99318366af37fce577f657242cf8c9c8554619",
+        "merged_at": "2026-11-09T19:31:04Z"
+      }
+    },
+    {
+      "id": "network-724-wallet-cookie",
+      "goal": "The frame wallet relay takes the person's ov_token cookie when no Bearer token is sent, forwards it upstream as the Bearer and never as a cookie, and only an origin already on the CORS allow-list (or no Origin) may use that path.",
+      "check": {
+        "kind": "command",
+        "value": "node --import ./test/helpers/pg-preload.mjs test/frame-wallet.test.js"
+      },
+      "budget": {
+        "tokens": 1000000,
+        "turns": 40,
+        "active_minutes": 6
+      },
+      "no_progress_limit": 4,
+      "fixture": {
+        "repo": "https://github.com/OpenVibers/OpenVibe.Network",
+        "ref": "c69abee12d0e3f4cd7ffb7a5a049d38d71c8469b",
+        "check_patch": "diff --git a/test/frame-wallet.test.js b/test/frame-wallet.test.js\nindex f574d5e..1a3c667 100644\n--- a/test/frame-wallet.test.js\n+++ b/test/frame-wallet.test.js\n@@ -75,6 +75,24 @@ const ITD = 'itd_01JZ00000000000000000000B1';\n     assert.strictEqual(r.status, 401, 'no token, no wallet');\n     assert.strictEqual(asked.filter((x) => x.url.startsWith('/api/v1/me/wallet')).length, 1, 'and nothing is asked upstream');\n \n+    // A site with its own cookie session has no token for the navbar: the person's Network cookie (ov_token) is the\n+    // token, sent upstream as the Bearer and never as a cookie; the answer keeps the allow-list's echoed Origin.\n+    const session = 'abcdefghijklmnop.cookie';\n+    ({ r, d } = await get('/wallet/api/v1/me/wallet', { Cookie: `ov_sso=x; ov_token=${session}`, Origin: 'https://openvibe.events' }));\n+    assert.strictEqual(r.status, 200);\n+    const viaCookie = asked.filter((x) => x.url.startsWith('/api/v1/me/wallet')).at(-1);\n+    assert.strictEqual(viaCookie.auth, `Bearer ${session}`, \"the person's session token goes along as the Bearer\");\n+    assert.strictEqual(viaCookie.cookie, '', 'the cookie itself never does');\n+    assert.notStrictEqual(r.headers.get('access-control-allow-origin'), '*', \"a credentialed answer is never '*'\");\n+    const askedBefore = asked.length;\n+    ({ r } = await send('/wallet/api/v1/me/vibes/buy', 'POST', { pack: 'vibes_500' }, { Authorization: '', Cookie: `ov_token=${session}` }));\n+    assert.strictEqual(r.status, 401, 'a write by cookie needs an Origin');\n+    ({ r } = await get('/wallet/api/v1/me/wallet', { Cookie: `ov_token=${session}`, Origin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop' }));\n+    assert.strictEqual(r.status, 401, 'never from an extension page');\n+    ({ r } = await get('/wallet/api/v1/me/wallet', { Cookie: 'ov_token=short' }));\n+    assert.strictEqual(r.status, 401, 'a malformed cookie is no token');\n+    assert.strictEqual(asked.length, askedBefore, 'none of these asked upstream');\n+\n     // A page limit and cursor pass; every other query is dropped.\n     ({ r } = await get('/wallet/api/v1/me/items?limit=500&cursor=c1&subject=usr_other', { Authorization: token }));\n     assert.strictEqual(r.status, 200);\n",
+        "check_timeout_ms": 240000
+      },
+      "source": {
+        "repository": "OpenVibers/OpenVibe.Network",
+        "pull_request": 724,
+        "merge_commit": "783e1e08fc9583011a332ac000fa2c053d78e98d",
+        "merged_at": "2026-11-09T14:18:43Z"
+      }
+    }
+  ]
+}

@@ -38,8 +38,37 @@ run under it, with no person id. Nothing private or unlisted is ever read there.
 | `POST /api/v1/runs` | a person, or `bench.run.publish` | Publish a run. A service token with `bench.run.publish` makes a **verified** run; a person's token makes a **submitted** one, badged and out of the default rankings. |
 | `GET /api/v1/runs/:id` | anyone | One run with its per-task results. `run.document` is the published `bench.run@1` document. |
 | `GET /api/v1/compare?runs=a,b,c` | anyone | Up to four runs side by side, per task. |
-| `GET /api/v1/rankings?benchmark=&metric=score\|value\|speed\|consistency&harness=&since=` | anyone | The rankings for a benchmark. Verified runs only, unless `include_submitted=true`. |
+| `GET /api/v1/rankings?benchmark=&metric=score\|value\|speed\|consistency\|tickets&harness=&since=&effort=` | anyone | The rankings for a benchmark. Verified runs only, unless `include_submitted=true`. `metric=tickets` (also `pass_k`, `pass@k`) is the AL8 gate: pass@1, pass^k and cost per solved by model and effort (`effort` filters one). |
 | `GET /api/v1/percentile?benchmark=&model=&score=` | anyone | Where a score sits among that model's runs. |
+
+## Whole tickets (AL8, the gate)
+
+`codes.ticket` scores a whole ticket: a goal and its check, run over 3 to 5 trials on each model and effort. A run
+is one trial; each task is one ticket, and its score is 100 when the check passed and 0 when it did not. The
+results API answers the gate's table:
+
+```
+GET /api/v1/rankings?benchmark=bmk_…@1&metric=tickets&effort=high
+{
+  "rankings": {
+    "metric": "tickets",
+    "entries": [{
+      "model": "deepseek-flash", "effort": "high", "k": 3, "trials": 3, "task_trials": 9, "tickets": 3,
+      "pass_at_1": 0.888889,        // share of all (ticket, trial) pairs that passed
+      "pass_at_k": 0.666667,        // share of tickets whose every one of k trials passed
+      "cost_usd": 0.31, "solved": 3,
+      "cost_per_solved": 0.103333,  // every trial's cost ÷ the tickets solved at least once
+      "insufficient_trials": false,
+      "per_ticket": [{ "task_id": "…", "trials": 3, "passes": 3, "pass_at_1": 1, "pass_at_k": true, "cost_usd": 0.1 }]
+    }]
+  }
+}
+```
+
+A group with fewer than three trials sets `insufficient_trials: true`; it is not a gate result. The suite file
+(`bench.codes-ticket-suite@1`) and the runner are in `fixtures/codes.ticket/` and `scripts/ticket-suite.js`. A suite
+runs only when a person passes `--run`; the default models are `deepseek-flash` and `local`, and nothing is
+scheduled.
 
 ## Voting without signing in
 
