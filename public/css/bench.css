@@ -194,7 +194,7 @@ html, body { margin: 0; background: var(--bg-primary, #0a0f1c); color: var(--tex
 .br-card-title { font-size: 1.08rem; font-weight: 800; letter-spacing: -.01em; }
 .br-card-desc { color: var(--text-secondary, #96a7c2); font-size: .9rem; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .br-card-foot { font-size: .8rem; color: var(--text-muted, #7386a3); }
-@media (prefers-reduced-motion: reduce) { .br-card-link { transition: none; } .br-card-link:hover { transform: none; } }
+html[data-ov-motion=off] .br-card-link:hover{transform: none}
 
 /* Search and filters */
 .br-search { display: flex; gap: 8px; max-width: 560px; }
