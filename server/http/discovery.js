@@ -54,7 +54,7 @@ function createDiscoveryRoutes(ctx) {
             summary: DESCRIPTION,
             markdown: true,
             base: site,
-            details: 'GET /api/v1/kinds lists the benchmark kinds. GET /api/v1/boards/:kind?type=elo|pareto|cost renders a board as JSON. GET /api/v1/datasets/:kind.jsonl is the open dataset without voter ids. GET /api/v1/datasets/benchmarks.jsonl is every public benchmark and its runs. GET /api/v1/datasets/eee is Bench’s public runs as Every Eval Ever records (JSONL, paged), and GET /api/v1/external/records is the imported Every Eval Ever records with their provenance. POST /mcp is the Model Context Protocol endpoint.',
+            details: 'GET /api/v1/kinds lists the benchmark kinds. GET /api/v1/boards/:kind?type=elo|willing|pareto|cost renders a board as JSON; the chat.willing board is 18+ and marks itself adult: true. GET /api/v1/datasets/:kind.jsonl is the open dataset without voter ids. GET /api/v1/datasets/benchmarks.jsonl is every public benchmark and its runs. GET /api/v1/datasets/eee is Bench’s public runs as Every Eval Ever records (JSONL, paged), and GET /api/v1/external/records is the imported Every Eval Ever records with their provenance. POST /mcp is the Model Context Protocol endpoint.',
             sections: [
                 { title: 'Start here', links: [{ title: SITE_NAME, url: abs('/') }, { title: 'The API', url: abs('/docs') }] },
                 { title: 'Machine-readable', links: [{ title: 'Kinds (JSON)', url: abs('/api/v1/kinds') }] },
