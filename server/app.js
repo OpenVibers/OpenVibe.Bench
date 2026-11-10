@@ -139,6 +139,14 @@ async function createApp(opts = {}) {
             }
             if (Object.keys(kept).some((k) => METHODS.has(k))) paths[p] = kept;
         }
+        paths['/api/v1/ratings/{kindId}'] = { get: {
+            operationId: 'bench.ratings.get', summary: 'Shared model ratings with at least twenty eligible games', security: [],
+            parameters: [
+                { name: 'kindId', in: 'path', required: true, schema: { type: 'string' } },
+                { name: 'category', in: 'query', schema: { type: 'string', default: 'all', maxLength: 80 } },
+            ],
+            responses: { '200': { description: 'The fitted rating board; sparse models are omitted' }, '404': { description: 'No public rating kind' }, '422': { description: 'Invalid category' } },
+        } };
         res.set('Cache-Control', 'public, max-age=3600').set('Access-Control-Allow-Origin', '*').json({ ...doc, paths });
     });
     // /.well-known/agent.json (openvibe-shared/agent-layer, SEO-2): what this site serves, for agents.

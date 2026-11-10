@@ -1015,15 +1015,36 @@ function createStore(s, { log = console, random = Math.random, config = null, ai
         return rows;
     }
 
+    // The public rating shared by model pages and other sites. It uses the same fit as the
+    // board and dataset; bench_ratings remains a write-side counter, never this read's score.
+    async function ratings(kindId, { category = CATEGORY_DEFAULT } = {}) {
+        const kind = await getKind(kindId);
+        if (!kind || isPrivateKind(kind.id) || kind.schema?.adult === true) return null;
+        const cat = String(category || CATEGORY_DEFAULT);
+        if (!/^[a-zA-Z0-9_.:-]{1,80}$/.test(cat)) throw new BenchError(422, 'bench.invalid_category', 'Use a task category of at most 80 characters.');
+        return {
+            schema: 'bench.ratings@1', kind_id: kindId, category: cat, type: 'elo', adult: false,
+            minimum_samples: 20, source: 'OpenVibe.Bench judgements',
+            methodology: 'Bradley-Terry fit of eligible pairwise games; one game has one vote. Ratings below twenty games are withheld.',
+            rows: (await boardElo(kindId, cat)).filter((row) => row.games >= 20),
+        };
+    }
+
     async function modelSummary(model) {
         const name = String(model || '');
-        const ratings = (await db.many('SELECT * FROM bench_ratings WHERE subject = $1 ORDER BY kind_id, category', [name])).map(wireRating);
+        const kinds = await db.many('SELECT DISTINCT r.kind_id FROM bench_entries e JOIN bench_rounds r ON r.id = e.round_id WHERE e.model = $1 ORDER BY r.kind_id', [name]);
+        const modelRatings = [];
+        for (const { kind_id: kindId } of kinds) {
+            const result = await ratings(kindId);
+            const rating = result?.rows.find((row) => row.subject === name);
+            if (rating) modelRatings.push(rating);
+        }
         const entries = (await db.many(
             `SELECT e.*, r.kind_id FROM bench_entries e JOIN bench_rounds r ON r.id = e.round_id WHERE e.model = $1 ORDER BY e.created_at DESC LIMIT 100`,
             [name],
         )).map((e) => ({ ...wireEntry(e), kind_id: e.kind_id }));
         const cost = num(await db.value('SELECT COALESCE(SUM(cost_usd), 0)::numeric AS n FROM bench_entries WHERE model = $1', [name]));
-        return { model: name, ratings, entries, total_cost_usd: Math.round(cost * 1e6) / 1e6 };
+        return { model: name, ratings: modelRatings, ratings_minimum_samples: 20, entries, total_cost_usd: Math.round(cost * 1e6) / 1e6 };
     }
 
     // ── Dataset (open, no voter ids) ─────────────────────────
@@ -1174,7 +1195,7 @@ function createStore(s, { log = console, random = Math.random, config = null, ai
         createTask, getTask,
         createRound, createArenaRound, getRound, addEntry, maybeReady, finishRound, clipPolicies,
         nextJudgement, castJudgement, pairwiseGames,
-        board, valueRows, modelSummary, dataset, datasetJsonl,
+        board, ratings, valueRows, modelSummary, dataset, datasetJsonl,
         createEval, getEval, runEval, evalResults, evalDailyCount,
         KINDS, JUDGES, WINNERS, BASE_ELO, CATEGORY_DEFAULT, shuffle,
     };
