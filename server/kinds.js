@@ -21,6 +21,19 @@ const KINDS = Object.freeze([
     { id: 'vision.pair', room: 'vision', entry: 'model_answer', judge: 'human_pairwise', name: 'Vision head-to-head', metrics: ['elo', 'cost_usd'], schema: { entry: 'model_answer', payload: { answer: 'string' } } },
     { id: 'codes.patch', room: 'codes', entry: 'code_patch', judge: 'test_suite', name: 'Code patches', metrics: ['pass_rate', 'cost_usd'], schema: { entry: 'code_patch', payload: { patch: 'string' }, prompt: { repository: 'string', failing_test: 'string', constraints: 'string' }, rubric: ['Apply the patch in an isolated checkout', 'Run the pinned failing and regression tests', 'Pass only when all tests pass'], seeds: [{ repository: 'sample-js', failing_test: 'sum([]) should return 0', constraints: 'Change only sum.js' }] } },
     { id: 'codes.review', room: 'codes', entry: 'review', judge: 'human_pairwise', name: 'Code diff review', metrics: ['elo', 'cost_usd'], schema: { entry: 'review', payload: { review: 'string' }, prompt: { diff: 'string', intent: 'string' }, rubric: ['Find specific correctness or security defects', 'Cite the affected lines and explain impact', 'Avoid speculative or duplicate findings'], seeds: [{ diff: 'A cache key changes from userId to a constant', intent: 'Review for cross-user data exposure' }] } },
+    // AL8, the gate (plan 2026-11-10): one whole ticket run over 3 to 5 trials. The task carries AL1's shape —
+    // goal and check, a budget and a no-progress limit — and the check is applied only after the worker stops, so a
+    // test added by the merged pull request grades the work. A run is one trial; pass@1, pass^k and cost per
+    // solved are read from GET /api/v1/rankings?benchmark=…&metric=tickets[&effort=…].
+    { id: 'codes.ticket', room: 'codes', entry: 'ticket_result', judge: 'test_suite', name: 'Whole tickets', metrics: ['pass_at_1', 'pass_at_k', 'cost_per_solved'],
+        schema: {
+            trials: { min: 3, max: 5 },
+            goal: { goal: 'string', check: { kind: 'command|url|rubric', value: 'string' }, budget: { tokens: 'integer', turns: 'integer', active_minutes: 'integer' }, no_progress_limit: 'integer' },
+            entry: 'ticket_result', payload: { passed: 'boolean', check_output: 'string' },
+            fixture: { repo: 'https://github.com/OpenVibers/<Repo>', ref: '40-character base commit', check_patch: 'unified diff of the pull request tests' },
+            scoring: 'pass@1 is the share of trials that passed; pass^k is the share of tickets whose every one of k trials passed; cost per solved is every trial cost divided by the tickets solved at least once',
+            seeds: [{ goal: 'The failing test passes.', check: { kind: 'command', value: 'node test/example.test.js' }, budget: { turns: 20, active_minutes: 5 } }],
+        } },
     { id: 'surf.desk', room: 'surf', entry: 'agent_on_desk', judge: 'human_pairwise', name: 'Agents on desks', metrics: ['elo', 'cost_usd', 'ms'], schema: { entry: 'agent_on_desk', payload: { desk: 'object' } } },
     { id: 'chat.reply', room: 'chat', entry: 'conversation_turn', judge: 'human_pairwise', name: 'Chat replies', metrics: ['elo', 'cost_usd'], schema: { entry: 'conversation_turn', payload: { reply: 'string' }, prompt: { conversation: 'array', latest_user_message: 'string' }, rubric: ['Answer the latest request accurately', 'Use prior turns when relevant', 'Be clear and avoid invented facts'], seeds: [{ conversation: [{ role: 'user', content: 'I have 20 minutes for dinner.' }], latest_user_message: 'Suggest a quick vegetarian meal.' }] } },
     { id: 'chat.arena', room: 'exchange', entry: 'model_answer', judge: 'human_pairwise', name: 'Exchange arena', metrics: ['elo', 'cost_usd', 'ms'], schema: { entry: 'model_answer', payload: { answer: 'string' }, prompt: { text: 'string' } } },

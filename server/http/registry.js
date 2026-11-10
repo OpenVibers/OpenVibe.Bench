@@ -366,8 +366,8 @@ function createRegistryApi(ctx) {
         const benchmark = req.query.benchmark ? String(req.query.benchmark) : '';
         if (!benchmark) return invalid(res, 'benchmark is required: ?benchmark=bmk_…');
         const metric = req.query.metric ? String(req.query.metric) : 'score';
-        if (!['score', 'value', 'speed', 'consistency', 'horizon'].includes(metric)) {
-            return invalid(res, 'metric is score, value, speed, consistency or horizon');
+        if (!['score', 'value', 'speed', 'consistency', 'horizon', 'tickets', 'pass_k', 'pass@k', 'pass^k'].includes(metric)) {
+            return invalid(res, 'metric is score, value, speed, consistency, horizon or tickets');
         }
         try {
             const bm = await registry.getBenchmark(benchmark.split('@')[0]);
@@ -378,6 +378,7 @@ function createRegistryApi(ctx) {
                 harness: req.query.harness ? String(req.query.harness) : null,
                 since: req.query.since ? String(req.query.since) : null,
                 includeSubmitted: String(req.query.include_submitted || '') === 'true',
+                effort: req.query.effort ? String(req.query.effort).slice(0, 40) : null,
             });
             if (!out) return problem(res, 404, 'bench.benchmark_not_found', 'No such benchmark.');
             res.set('Cache-Control', bm.visibility === 'public' ? 'public, max-age=60' : 'private, no-store');

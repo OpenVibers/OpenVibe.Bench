@@ -21,6 +21,10 @@ const { isHeldOut, addedOn, humanMinutes, humanMinutesSource } = require('./task
 const { cutoffFor } = require('./model-cutoffs');
 const { contaminationFor } = require('./contamination');
 const { estimateHorizon } = require('./horizon');
+const { scoreRuns } = require('./tickets');
+
+/** The metric names the gate answers to. `tickets` is the API's name; pass@k aliases are what callers type. */
+const TICKET_METRICS = Object.freeze(['tickets', 'pass_k', 'pass@k', 'pass^k']);
 
 const num = (v, d = 0) => (v == null || v === '' || Number.isNaN(Number(v)) ? d : Number(v));
 const iso = (v) => (v == null ? null : (v instanceof Date ? v.toISOString() : String(v)));
@@ -831,13 +835,14 @@ function createRegistry(s, { log = console, sharing = null } = {}) {
      *   speed        the median score per minute
      *   consistency  the spread of a model's scores inside one session (the lower, the steadier)
      *   horizon      the 50% human-time horizon (minutes; higher is better)
+     *   tickets      the AL8 gate: pass@1, pass^k and cost per solved by model and effort, for a whole-ticket suite
      *
      * `since` is a monthly fresh set: with dated tasks, only the tasks added on or after that month are scored.
      * An older benchmark whose tasks carry no dates keeps the B2 meaning (runs created since the date), so nothing
      * that worked before stops working. Each entry also carries the contamination flag and the time horizon when
      * there is enough data for either.
      */
-    async function rankings({ benchmark, metric = 'score', harness = null, since = null, includeSubmitted = false }) {
+    async function rankings({ benchmark, metric = 'score', harness = null, since = null, includeSubmitted = false, effort = null }) {
         const ref = parseRef(benchmark);
         if (!ref) return null;
         const versions = await db.many(
@@ -883,6 +888,21 @@ function createRegistry(s, { log = console, sharing = null } = {}) {
             if (!tasksByRun.has(row.run_id)) tasksByRun.set(row.run_id, []);
             tasksByRun.get(row.run_id).push(row);
         }
+        // The AL8 gate reads the same stored runs, one row per model and effort. A ticket is a task; a run is one
+        // trial of the whole suite, so pass^k needs every trial's task row.
+        if (TICKET_METRICS.includes(metric)) {
+            const scored = scoreRuns(rows.map((row) => wireRun(row)), tasksByRun, { effort });
+            const latest = definitions.get(Math.max(...wanted));
+            return {
+                benchmark: ref.id,
+                metric: 'tickets',
+                kind: latest ? latest.kind : null,
+                effort: effort == null ? null : String(effort),
+                trials_required: { min: 3, max: 5 },
+                entries: scored.entries,
+            };
+        }
+
         const estimates = await estimateMedians(ref.id, wanted);
 
         /** The score and totals of one run, over the selected tasks when a monthly set is asked for. */

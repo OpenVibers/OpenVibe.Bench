@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Whole tickets, the gate (AL8).** A new kind, `codes.ticket`, scores a whole ticket — a goal and a typed check
+  in `agent.goal@1`'s shape, with a token/turn/minute budget and a no-progress limit — over 3 to 5 trials per model
+  and effort. A run is one trial; a task's score is 100 when the check exited 0 and 0 when it did not, and the
+  check's test patch is applied only after the worker stops, so the merged pull request's own test grades the work.
+  `GET /api/v1/rankings?benchmark=…&metric=tickets&effort=…` (also `pass_k`, `pass@k`) reports pass@1, pass^k (every
+  one of k trials passed) and cost per solved by model and effort, with the per-ticket rows. The first suite
+  (`fixtures/codes.ticket/openvibe-merged-2026-11.json`) holds twelve small tickets from merged OpenVibe pull
+  requests across Bench, Codes, AI, Actor, Exchange, Report and Network; each goal is the change in words and each
+  check is the pull request's own test. `scripts/ticket-suite.js` prints the plan and runs only with `--run`; the
+  default models are `deepseek-flash` and `local`, and nothing is scheduled.
 - **Provider fidelity (B5).** `GET /api/v1/fidelity` publishes, for every measured open-weight model offer, the
   score of the fixed public objective set (`fidelity-2026-11-09.v1`: ten objective items, a deterministic check each,
   no judge), with n, its 95% Wilson interval and the model it was compared on. `POST /api/v1/fidelity/plan` is the
