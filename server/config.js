@@ -146,6 +146,19 @@ function load(env = process.env) {
                 filesPerRun: Math.max(1, int(env.BENCH_EEE_FILES_PER_RUN, 5000)),
                 recordsPerRun: Math.max(1, int(env.BENCH_EEE_RECORDS_PER_RUN, 50000)),
             },
+            // B5 provider fidelity: one fixed objective set per open-weight model, every provider that
+            // serves it. Off until the owner turns it on; the daily cap is real money, and the dry run
+            // lists every call and its own-page price before anything is spent.
+            fidelity: {
+                enabled: bool(env.BENCH_FIDELITY, false),
+                enabledInDrill: bool(env.BENCH_FIDELITY_IN_DRILL, false),
+                dailyCapUsd: Math.max(0, float(env.BENCH_FIDELITY_DAILY_CAP_USD, 1.00)),
+                maxModels: Math.max(1, int(env.BENCH_FIDELITY_MAX_MODELS, 10)),
+                maxCallsPerRun: Math.max(1, int(env.BENCH_FIDELITY_MAX_CALLS, 60)),
+                minAnswered: Math.max(1, int(env.BENCH_FIDELITY_MIN_ANSWERED, 5)),
+                intervalMs: Math.max(3_600_000, int(env.BENCH_FIDELITY_INTERVAL_MS, 7 * 24 * 60 * 60 * 1000)),
+                tickMs: Math.max(60_000, int(env.BENCH_FIDELITY_TICK_MS, 60 * 60 * 1000)),
+            },
         },
     };
 }

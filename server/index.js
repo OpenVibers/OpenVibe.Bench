@@ -17,6 +17,7 @@ function createLifecycle({ server, ctx, exit, signals, timers = [], extra = [] }
             () => ctx.jobs.stop(),
             () => ctx.daily.stop(),
             () => ctx.eeeSync.stop(),
+            () => ctx.fidelityJob.stop(),
             () => ctx.publisher.stop(),
             async () => { clearInterval(ctx.telemetryTick); if (ctx.retention) await ctx.retention.stop(); if (ctx.telemetry) await ctx.telemetry.stop(); },
             () => ctx.s.close(),
@@ -48,6 +49,8 @@ async function start() {
     ctx.daily.start();
     // The weekly Every Eval Ever import (B2). Off until BENCH_EEE_SYNC is on; bounded and resumable.
     ctx.eeeSync.start();
+    // The weekly provider-fidelity pass (B5). Off until BENCH_FIDELITY is on; due-based and capped.
+    ctx.fidelityJob.start();
     // Outbox publisher → OpenVibe.Events.
     ctx.publisher.start();
 
