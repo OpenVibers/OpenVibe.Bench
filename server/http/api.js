@@ -291,7 +291,7 @@ function createApi(ctx) {
     // ── Boards, models, datasets ────────────────────────────
     const ratingsCors = (_req, res, next) => {
         res.set('Access-Control-Allow-Origin', '*').set('Access-Control-Allow-Methods', 'GET, OPTIONS');
-        res.set('Access-Control-Allow-Headers', 'Accept, Content-Type');
+        res.set('Access-Control-Allow-Headers', 'Accept, Content-Type, traceparent, X-OpenVibe-Request-Id');
         next();
     };
     r.options('/ratings/:kindId', ratingsCors, (_req, res) => res.status(204).end());
