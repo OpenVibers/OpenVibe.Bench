@@ -79,7 +79,7 @@ function pickPage(a) {
 <ul class="pk-also">${(a.also_ran || []).map((r) => html`<li class="${r.thin ? 'pk-thin' : ''}"><b>${r.model}</b> · score ${r.score} · ${cents(r.cost_per_solved)} a solved task · ${r.runs} run${r.runs === 1 ? '' : 's'}${r.thin ? ' — too few runs to stand on, so these numbers are greyed' : ' — another model is at least as good on score and at least as cheap'}</li>`)}</ul>
 </section>` : '';
     return html`<div class="bm-wrap pk" id="pk-pick">
-<header class="bm-page-h"><p class="bm-kicker">OpenVibe.Bench</p><h1>Pick for me</h1>
+<header class="bm-page-h"><h1>Pick for me</h1>
 <p class="bm-lede">Say the job with plain controls. No model is called and nothing is charged: the answer comes from the runs Bench has published.</p></header>
 ${pickForm(a.controls)}
 ${notes}
