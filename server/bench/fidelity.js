@@ -21,6 +21,8 @@ const { OBJECTIVE_SET, SYSTEM, ITEMS, check, promptTokens, publicSet } = require
 const ERROR_MAX = 300;
 const num = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
 const round = (v) => (v == null ? null : Math.round(Number(v) * 1e6) / 1e6);
+// PostgreSQL returns `date` as a JS Date; PGlite returns the string. Both are the same day.
+const dayOf = (v) => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v || '').slice(0, 10));
 
 class FidelityError extends Error {
     constructor(status, code, detail) {
@@ -304,4 +306,4 @@ function createFidelity({ s, ai, config, clock = { now: () => Date.now() }, log 
     return { plan, run, read, due, lastState, objectiveSet: publicSet };
 }
 
-module.exports = { createFidelity, FidelityError, wilson, weekOf, estimateItem, idempotencyKey, keyOf, OBJECTIVE_SET, ITEMS };
+module.exports = { createFidelity, FidelityError, wilson, weekOf, estimateItem, idempotencyKey, keyOf, dayOf, OBJECTIVE_SET, ITEMS };
