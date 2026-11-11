@@ -59,6 +59,56 @@ const { boot, check, done } = require('./helpers/boot');
             });
             assert.strictEqual(bad.status, 403);
         });
+
+        await check('the owner page carries the default, "apply to all" and each Share button', async () => {
+            const id = await make(alice, 'Owner page benchmark');
+            const mine = await t.get('/benchmarks/mine', { as: alice });
+            assert.strictEqual(mine.status, 200, mine.text.slice(0, 200));
+            assert.ok(mine.text.includes('New benchmarks') && mine.text.includes('name="audience"'));
+            assert.ok(mine.text.includes('Apply to all my existing benchmarks'));
+            assert.ok(mine.text.includes('Owner page benchmark'));
+            assert.ok(mine.text.includes(`data-kind="benchmark" data-id="${id}"`), 'the Share sheet button names the benchmark');
+            assert.strictEqual((await t.get('/benchmarks/mine')).status, 302, 'signed out, the owner page signs in first');
+
+            const saved = await t.get('/benchmarks/mine/default', {
+                as: alice, method: 'POST',
+                body: new URLSearchParams({ audience: 'link', apply: '1' }).toString(),
+                headers: { 'content-type': 'application/x-www-form-urlencoded' },
+            });
+            assert.strictEqual(saved.status, 303, saved.text);
+            assert.ok(String(saved.headers.get('location')).startsWith('/benchmarks/mine?'));
+            assert.strictEqual((await row(id)).audience, 'link');
+            const after = await t.get(saved.headers.get('location'), { as: alice });
+            assert.ok(after.text.includes('Sharing preference saved'), 'the saved notice is shown');
+            assert.strictEqual((await t.get('/benchmarks/new', { as: alice })).status, 200, 'the create form stays on Bench');
+        });
+
+        await check('a public benchmark still moves to Report; a private one and a share link stay here', async () => {
+            const id = await make(alice, 'Moved public benchmark');
+            const madePublic = await t.get(`/benchmarks/${id}/share`, {
+                as: alice, method: 'POST', body: new URLSearchParams({ visibility: 'public' }).toString(),
+                headers: { 'content-type': 'application/x-www-form-urlencoded' },
+            });
+            assert.strictEqual(madePublic.status, 200, madePublic.text.slice(0, 200));
+            const anon = await t.get(`/benchmarks/${id}`);
+            assert.strictEqual(anon.status, 301);
+            assert.strictEqual(anon.headers.get('location'), `https://openvibe.report/ai/${id}`);
+            const owner = await t.get(`/benchmarks/${id}`, { as: alice });
+            assert.strictEqual(owner.status, 200, 'the owner keeps the page with the Share controls');
+            assert.ok(owner.text.includes('Sharing'));
+
+            await put(alice, 'private');
+            const hidden = await make(alice, 'Private benchmark');
+            assert.strictEqual((await t.get(`/benchmarks/${hidden}`)).status, 404);
+            assert.strictEqual((await t.get(`/benchmarks/${hidden}`, { as: bob })).status, 404);
+            assert.strictEqual((await t.get(`/benchmarks/${hidden}`, { as: alice })).status, 200);
+
+            const unlisted = await t.ctx.registry.setVisibility(hidden, { visibility: 'unlisted', subject: alice.subject });
+            assert.strictEqual(unlisted.ok, true);
+            const link = await t.get(unlisted.share_path);
+            assert.strictEqual(link.status, 200, 'an unlisted share link opens on Bench, not Report');
+            assert.ok(link.text.includes('Private benchmark'));
+        });
     } finally { await t.close(); }
     done();
 })().catch((error) => { console.error(error); process.exit(1); });

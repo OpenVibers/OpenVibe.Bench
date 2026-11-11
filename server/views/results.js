@@ -13,6 +13,9 @@ const kit = require('openvibe-shared/kit');
 
 const MEDIA_ORIGIN = 'https://openvibe.media';
 
+/** The four audiences in the words the Share sheet uses; Bench's visibility column maps unlisted to link. */
+const AUDIENCE_LABEL = { public: 'Everyone', link: 'Anyone with the link', people: 'Specific people', private: 'Only me', unlisted: 'Anyone with the link' };
+
 // ---- numbers -------------------------------------------------------------------------------------------------
 
 const fmtScore = (v) => (v == null ? '—' : (Math.round(Number(v) * 10) / 10).toFixed(1).replace(/\.0$/, ''));
@@ -329,16 +332,54 @@ function benchmarkCard(b) {
     return html`<li class="br-card"><a class="br-card-link" href="${benchmarkHref(b.id)}"><span class="br-card-top">${kindChip(b.kind)}<span class="br-card-v">v${b.latest_version || 0}</span>${vis}</span><span class="br-card-title">${b.title}</span><span class="br-card-desc">${b.description}</span><span class="br-card-foot">${plural(tasks, 'task')}${b.runs != null ? html` · ${plural(b.runs, 'run')}` : ''}${b.parent ? ' · a fork' : ''}</span></a></li>`;
 }
 
+/**
+ * A person's own page: the default audience for new benchmarks, "apply to all", and a Share button on each one.
+ * The page stays on Bench because Report reads only the public API: a private or unlisted benchmark, and the
+ * person's own default, have no Report page.
+ */
+function myBenchmarks({ benchmarks = [], defaultAudience = 'private', baseUrl = '', notice = null, error = null } = {}) {
+    const audiences = [
+        ['public', 'Everyone'],
+        ['link', 'Anyone with the link'],
+        ['people', 'Specific people'],
+        ['private', 'Only me'],
+    ];
+    const label = Object.fromEntries(audiences);
+    const visibleLabel = { public: 'Everyone', unlisted: 'Anyone with the link', private: 'Only me' };
+    const options = audiences.map(([value, text]) => html`<option value="${value}"${value === defaultAudience ? raw(' selected') : ''}>${text}</option>`);
+    return html`<div class="bm-wrap br" id="br-mine">
+<header class="bm-page-h"><div class="bm-head-row"><div><p class="bm-kicker">Your benchmarks</p><h1>Your benchmarks</h1>
+<p class="bm-lede">Private ones are yours alone. An unlisted one opens with its link; a public one is also on OpenVibe.Report's AI page.</p></div><a class="bm-btn" href="/benchmarks/new">Make your own</a></div></header>
+${notice ? html`<p class="bm-note" role="status">${notice}</p>` : ''}
+${error ? html`<div class="bm-note is-bad" role="alert">${error}</div>` : ''}
+<section class="bm-section" aria-labelledby="br-default-h"><div class="bm-head-row"><h2 id="br-default-h">New benchmarks</h2><span class="br-chip br-vis">${label[defaultAudience] || 'Only me'}</span></div>
+<p class="br-fine">Who can open a benchmark you make from now on. Each one's Share button can still change just that one.</p>
+<form class="br-form" method="post" action="/benchmarks/mine/default">
+<label class="br-field"><span>New benchmarks</span><select name="audience">${options}</select></label>
+<label class="br-check"><input type="checkbox" name="apply" value="1"> Apply to all my existing benchmarks</label>
+<button class="bm-btn" type="submit">Save sharing preference</button>
+</form></section>
+<section class="bm-section" aria-labelledby="br-mine-h"><div class="bm-head-row"><h2 id="br-mine-h">Your benchmarks</h2><span class="bm-count">${benchmarks.length}</span></div>
+${benchmarks.length ? html`<ul class="br-cards">${benchmarks.map((b) => html`<li class="br-card"><a class="br-card-link" href="${benchmarkHref(b.id)}"><span class="br-card-top">${kindChip(b.kind)}<span class="br-card-v">v${b.latest_version || 0}</span><span class="br-chip br-vis">${label[b.audience] || visibleLabel[b.visibility] || 'Only me'}</span></span><span class="br-card-title">${b.title}</span><span class="br-card-desc">${b.description || ''}</span><span class="br-card-foot">${plural((((b.draft || {}).tasks) || []).length, 'task')}${b.runs != null ? html` · ${plural(b.runs, 'run')}` : ''}</span></a>
+<p class="br-share-sheet">${raw(kit.share({ title: b.title, url: `${String(baseUrl || '').replace(/\/+$/, '')}/benchmarks/${encodeURIComponent(b.id)}`, text: b.description || '', kind: 'benchmark', id: b.id }))}</p></li>`)}</ul>`
+        : empty('No benchmarks yet', 'Paste 5 to 50 prompts you really use as a private benchmark.', html`<a class="bm-btn bm-btn-small" href="/benchmarks/new">Make your own</a>`)}</section>
+</div>`;
+}
+
 /** The owner's sharing controls: private, an unlisted link, or public. Plain form posts, no JavaScript. */
-function shareBox({ benchmark, shareUrl = null, error = null, baseUrl = '' }) {
+function shareBox({ benchmark, shareUrl = null, error = null, baseUrl = '', audience = null }) {
     const visibility = benchmark.visibility || 'private';
-    const note = visibility === 'private'
-        ? 'Private: only you can see this benchmark and its prompts. No link works.'
-        : visibility === 'unlisted'
-            ? 'Unlisted: anyone with the link can see it. It is not in any list, search, sitemap or the open data.'
-            : 'Public: it is in the benchmark list, the sitemap and the open data, with every run published.';
+    const seenBy = (audience === 'unlisted' ? 'link' : audience) || visibility;
+    const chip = AUDIENCE_LABEL[seenBy] || 'Only me';
+    const note = seenBy === 'private'
+        ? 'Only me: only you can see this benchmark and its prompts. No link works.'
+        : seenBy === 'people'
+            ? 'Specific people: only you and the people named in the Share sheet can open it. It is not in any list, search, sitemap or the open data.'
+            : seenBy === 'link'
+                ? 'Anyone with the link: anyone who has it can see this benchmark. It is not in any list, search, sitemap or the open data.'
+                : 'Everyone: it is in the benchmark list, the sitemap and the open data, with every run published.';
     return html`<section class="bm-section br-share" id="br-share" aria-labelledby="br-share-h">
-<div class="br-fold br-share-details"><input class="br-fold-toggle" type="checkbox" id="br-share-open"><label class="br-fold-h" for="br-share-open"><h2 id="br-share-h">Sharing</h2><span class="br-chip br-vis">${visibility}</span><span class="br-fold-mark" aria-hidden="true"></span></label>
+<div class="br-fold br-share-details"><input class="br-fold-toggle" type="checkbox" id="br-share-open"><label class="br-fold-h" for="br-share-open"><h2 id="br-share-h">Sharing</h2><span class="br-chip br-vis">${chip}</span><span class="br-fold-mark" aria-hidden="true"></span></label>
 <div class="br-fold-body">
 <p class="br-fine">${note}</p>
 <p class="br-share-sheet">${raw(kit.share({ title: benchmark.title, url: `${String(baseUrl || '').replace(/\/+$/, '')}/benchmarks/${encodeURIComponent(benchmark.id)}`, text: benchmark.description || '', kind: 'benchmark', id: benchmark.id }))}</p>
@@ -356,7 +397,7 @@ ${shareUrl ? html`<div class="bm-note br-share-now" role="status"><p>Your unlist
 
 /** The new-benchmark form: 5–50 pasted prompts, one per line or CSV with an optional expected answer. */
 function newBenchmarkPage({ kinds = [], values = {}, error = null, signedIn = false, loginUrl = '/auth/login' }) {
-    const head = html`<nav class="br-crumbs" aria-label="Breadcrumb"><a href="/benchmarks">Benchmarks</a><span aria-hidden="true">/</span><span>Make your own</span></nav>
+    const head = html`<nav class="br-crumbs" aria-label="Breadcrumb"><a href="${signedIn ? '/benchmarks/mine' : '/benchmarks'}">${signedIn ? 'Your benchmarks' : 'Benchmarks'}</a><span aria-hidden="true">/</span><span>Make your own</span></nav>
 <header class="bm-page-h"><p class="bm-kicker">Your prompts</p><h1>Make a benchmark from your own prompts</h1>
 <p class="bm-lede">Paste 5 to 50 prompts you really use. They become the tasks of a private benchmark: no model is called and nothing is charged until you run it on openvibe.codes.</p></header>`;
     if (!signedIn) {
@@ -386,7 +427,7 @@ ${error ? html`<div class="bm-note is-bad" role="alert">${error}</div>` : ''}
 </div>`;
 }
 
-function benchmarkPage({ benchmark, definition, version, rankings, metric = 'score', runs = [], codesRunUrl = null, viewer = null, baseUrl = '', ownBoards = null, share = null, shared = false, owner = false, since = null, allTimeEntries = null }) {
+function benchmarkPage({ benchmark, definition, version, rankings, metric = 'score', runs = [], codesRunUrl = null, viewer = null, baseUrl = '', ownBoards = null, share = null, shared = false, owner = false, since = null, allTimeEntries = null, audience = null }) {
     const d = definition || {};
     const tasks = Array.isArray(d.tasks) ? d.tasks : [];
     const freshSets = [...new Set(tasks.map((t) => (t && t.added_on ? String(t.added_on).slice(0, 7) : null)).filter(Boolean))].sort().reverse();
@@ -403,19 +444,26 @@ function benchmarkPage({ benchmark, definition, version, rankings, metric = 'sco
             ? html`<a class="bm-btn" href="${benchmarkHref(benchmark.id)}/run">Run it yourself</a>`
             : html`<a class="bm-btn bm-btn-quiet" href="/docs#br-publish">Publish a run</a>`;
     const byline = owner ? 'by you' : shared ? 'by its owner' : `by ${benchmark.owner}`;
-    const privateNote = benchmark.visibility === 'private'
-        ? html`<div class="bm-note br-private" role="status"><b>Private.</b> Only you can see this benchmark and its prompts. It is not in any list, search or the open data.</div>`
-        : shared
-            ? html`<div class="bm-note br-shared" role="status"><b>Shared by its owner.</b> This page is not in any list or search engine. The link can stop working if the owner makes it private.</div>`
-            : '';
+    const seenBy = (audience === 'unlisted' ? 'link' : audience) || benchmark.visibility || 'private';
+    const audienceLabel = AUDIENCE_LABEL[seenBy] || 'Only me';
+    const readerNote = html`<div class="bm-note br-shared" role="status"><b>Shared by its owner.</b> This page is not in any list or search engine. The owner can remove your access at any time.</div>`;
+    const privateNote = !owner && seenBy !== 'public'
+        ? readerNote
+        : seenBy === 'private'
+            ? html`<div class="bm-note br-private" role="status"><b>Only me.</b> Only you can see this benchmark and its prompts. It is not in any list, search or the open data.</div>`
+            : seenBy === 'people'
+                ? html`<div class="bm-note br-private" role="status"><b>Specific people.</b> Only you and the people named in Share can open this benchmark. It is not in any list, search or the open data.</div>`
+                : seenBy === 'link'
+                    ? html`<div class="bm-note br-private" role="status"><b>Anyone with the link.</b> Anyone who has the link can open this benchmark. It is not in any list, search or the open data.</div>`
+                    : '';
     return html`<div class="bm-wrap br" id="br-benchmark">
-<nav class="br-crumbs" aria-label="Breadcrumb"><a href="/benchmarks">Benchmarks</a><span aria-hidden="true">/</span><span>${benchmark.title}</span></nav>
-<header class="br-head"><div class="br-head-main"><p class="br-head-meta">${kindChip(benchmark.kind)}<span>v${version || benchmark.latest_version || 0}</span><span>${byline}</span>${benchmark.visibility !== 'public' ? html`<span class="br-chip br-vis">${benchmark.visibility}</span>` : ''}${benchmark.parent ? html`<a href="${benchmarkHref(benchmark.parent)}">forked</a>` : ''}</p>
+<nav class="br-crumbs" aria-label="Breadcrumb"><a href="${owner ? '/benchmarks/mine' : '/benchmarks'}">${owner ? 'Your benchmarks' : 'Benchmarks'}</a><span aria-hidden="true">/</span><span>${benchmark.title}</span></nav>
+<header class="br-head"><div class="br-head-main"><p class="br-head-meta">${kindChip(benchmark.kind)}<span>v${version || benchmark.latest_version || 0}</span><span>${byline}</span>${seenBy !== 'public' ? html`<span class="br-chip br-vis">${audienceLabel}</span>` : ''}${benchmark.parent ? html`<a href="${benchmarkHref(benchmark.parent)}">forked</a>` : ''}</p>
 <h1>${benchmark.title}</h1>${benchmark.description ? html`<p class="bm-lede">${benchmark.description}</p>` : ''}</div>
 <div class="br-head-act">${runYourself}<p class="br-fine">${canRun ? 'On openvibe.codes, with your own keys or the free pool through OpenVibe.AI. The result is published here.' : codesRunUrl ? 'Only the owner starts runs on this benchmark. Its results are readable here.' : 'Running it on openvibe.codes with your own keys is coming. Today a run is published through the API.'}</p></div></header>
 ${privateNote}
 <dl class="br-facts"><div><dt>Tasks</dt><dd>${tasks.length}${hidden ? html` <span class="br-fine">(${hidden} hidden)</span>` : ''}</dd></div><div><dt>Judged by</dt><dd>${judges.length ? judges.map((j) => String(j.type).replace(/_/g, ' ')).join(', ') : '—'}</dd></div><div><dt>Limits</dt><dd>${[limits.ms ? fmtMs(limits.ms) : null, limits.tokens ? `${fmtTokens(limits.tokens)} tokens` : null, limits.usd ? fmtUsd(limits.usd) : null].filter(Boolean).join(' · ') || '—'}</dd></div><div><dt>Verified runs</dt><dd>${entries.reduce((n, e) => n + e.runs, 0)}</dd></div></dl>
-${owner ? shareBox({ benchmark, shareUrl: share && share.shareUrl, error: share && share.error, baseUrl }) : ''}
+${owner ? shareBox({ benchmark, shareUrl: share && share.shareUrl, error: share && share.error, baseUrl, audience: seenBy }) : ''}
 <div class="br-sections">
 <nav class="br-sec-pick" aria-label="Benchmark sections"><a href="#br-rank">Rankings</a><a href="#br-tasks">Tasks</a><a href="#br-runs">Runs</a></nav>
 ${ownBoards
@@ -574,7 +622,7 @@ ${modelUseThis({ baseUrl, model, rows, viewer })}
 }
 
 module.exports = {
-    benchmarksIndex, benchmarkPage, newBenchmarkPage, promptLeaderboard, promptBoards, shareBox,
+    benchmarksIndex, benchmarkPage, newBenchmarkPage, myBenchmarks, promptLeaderboard, promptBoards, shareBox,
     runForm, runPage, comparePage, modelPage, taskPage, valueChart, METRICS,
     fmtMinutes, horizonText, horizonLine,
     fmtScore, fmtUsd, fmtMs, fmtTokens, ordinal, benchmarkCard, render,
