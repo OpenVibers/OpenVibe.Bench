@@ -27,7 +27,7 @@ const { validateBenchmark, validateRun } = require('../bench/validate');
 const { canViewBenchmark } = require('../bench/registry');
 
 function createRegistryApi(ctx) {
-    const { config, principal, registry } = ctx;
+    const { config, principal, registry, sharing } = ctx;
     const r = asyncRouter();
 
     r.use(express.json({ limit: '16mb' }));
@@ -43,6 +43,22 @@ function createRegistryApi(ctx) {
     };
 
     const subjectOf = (req) => (req.principal && req.principal.kind === 'user' ? req.principal.subject : null);
+
+    r.get('/share-defaults/benchmark', async (req, res) => {
+        const subject = subjectOf(req);
+        if (!subject) return problem(res, 401, 'bench.sign_in_required', 'Sign in to read your benchmark default.');
+        return res.json({ kind: 'benchmark', audience: await sharing.defaultAudience(subject) });
+    });
+    r.put('/share-defaults/benchmark', express.json({ limit: '16kb' }), async (req, res) => {
+        const subject = subjectOf(req);
+        if (!subject) return problem(res, 401, 'bench.sign_in_required', 'Sign in to change your benchmark default.');
+        if (req.principal.viaSession && !sameOrigin(req, config)) return problem(res, 403, 'bench.cross_site', 'This change must come from Bench itself.');
+        const audience = String((req.body || {}).audience || '');
+        if (!sharing.AUDIENCES.includes(audience)) return problem(res, 422, 'bench.invalid_audience', 'Choose a sharing audience.');
+        await sharing.setDefaultAudience(subject, audience);
+        const changed = req.body && req.body.apply === true ? await sharing.applyDefault(subject, audience) : 0;
+        return res.json({ kind: 'benchmark', audience, changed });
+    });
 
     /** A person (any signed-in user) or a service token with the named capability. */
     function actor(cap) {

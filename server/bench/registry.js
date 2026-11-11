@@ -305,13 +305,15 @@ function createRegistry(s, { log = console, sharing = null } = {}) {
     const db = s.db;
 
     // ── Benchmarks ───────────────────────────────────────────
-    async function createBenchmark({ owner, title, description = '', kind, tags = [], visibility = 'unlisted', parent = null, definition = null, subject }) {
+    async function createBenchmark({ owner, title, description = '', kind, tags = [], visibility, parent = null, definition = null, subject }) {
         const text = String(title == null ? '' : title).trim();
         if (!text) return refusal(422, 'bench.title_required', 'A benchmark needs a title.');
         if (text.length > 160) return refusal(422, 'bench.title_too_long', 'The title must be at most 160 characters.');
         const kindId = String(kind == null ? '' : kind).trim();
         if (!kindId) return refusal(422, 'bench.kind_required', 'A benchmark needs a kind.');
-        const vis = String(visibility || 'unlisted');
+        const personal = /^usr_/.test(String(owner || '')) && String(subject || owner) === String(owner);
+        const preferred = visibility == null && personal && sharing ? await sharing.defaultAudience(owner) : null;
+        const vis = preferred ? (preferred === 'public' ? 'public' : preferred === 'link' ? 'unlisted' : 'private') : String(visibility || 'unlisted');
         if (!VISIBILITIES.includes(vis)) return refusal(422, 'bench.invalid_visibility', `visibility is ${VISIBILITIES.join(', ')}.`);
         const list = (Array.isArray(tags) ? tags : []).map((t) => String(t).trim()).filter(Boolean).slice(0, 32);
         const id = s.newId('bmk');
@@ -322,7 +324,7 @@ function createRegistry(s, { log = console, sharing = null } = {}) {
             [id, String(owner || 'openvibe'), text, String(description || '').slice(0, 4000), kindId,
                 JSON.stringify(list), vis, parent || null, JSON.stringify(definition || {}), String(subject || owner || 'openvibe'), s.iso()],
         );
-        if (sharing) await sharing.register({ subject: /^usr_/.test(String(subject || '')) ? String(subject) : null }, id, vis);
+        if (sharing) await sharing.register({ subject: /^usr_/.test(String(subject || '')) ? String(subject) : null }, id, preferred || vis);
         return { ok: true, benchmark: await getBenchmark(id, { revealDraft: true }) };
     }
 
