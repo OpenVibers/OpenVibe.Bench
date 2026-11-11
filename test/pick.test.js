@@ -10,6 +10,7 @@ const { boot, check, done } = require('./helpers/boot');
 const { frontier } = require('../server/pick/frontier');
 const { parsePick } = require('../server/pick/parser');
 const { KINDS } = require('../server/kinds');
+const { compareRuns: compareVersionRuns } = require('../server/bench/version-diff');
 
 (async () => {
     await check('the frontier drops the models another model beats on score and on cost', () => {
@@ -21,6 +22,20 @@ const { KINDS } = require('../server/kinds');
         ];
         // a beats d on score and on cost, so d is not on the frontier; b is cheaper than a, so it stays.
         assert.deepStrictEqual(frontier(rows).map((r) => r.model), ['a', 'b', 'c']);
+    });
+
+    await check('the version diff pairs identical tasks and reports a seeded confidence interval', () => {
+        const baseline = { id: 'old', model: 'model@1', benchmark: 'bench@1', tasks: [
+            { task_id: 'a', score: 0.5 }, { task_id: 'b', score: 0.6 }, { task_id: 'held', score: 1, held_out: true },
+        ] };
+        const candidate = { id: 'new', model: 'model@2', benchmark: 'bench@1', tasks: [
+            { task_id: 'a', score: 0.7 }, { task_id: 'b', score: 0.6 }, { task_id: 'c', score: 0.9 },
+        ] };
+        const out = compareVersionRuns(baseline, candidate, { iterations: 1000 });
+        assert.strictEqual(out.paired_tasks, 2, 'only common public task ids are paired');
+        assert.deepStrictEqual(out.changes, { better: 1, worse: 0, unchanged: 1 });
+        assert.deepStrictEqual(out.ci95, compareVersionRuns(baseline, candidate, { iterations: 1000 }).ci95, 'bootstrap is reproducible');
+        assert.ok(out.ci95.lower <= out.mean_delta && out.ci95.upper >= out.mean_delta);
     });
 
     await check('a tie keeps both models on the frontier', () => {
@@ -95,6 +110,12 @@ const { KINDS } = require('../server/kinds');
         assert.strictEqual(json.rows.length, 0, 'nothing is under half a cent');
         const ok = (await t.get('/api/v1/pick?kind=design.page&max_cost=0.02')).json();
         assert.ok(ok.rows.some((r) => r.model === 'alpha-1'), 'alpha-1 is under two cents');
+    });
+
+    await check('the quality floor returns only models that clear the requested score', async () => {
+        const json = (await t.get('/api/v1/pick?kind=design.page&min_score=99')).json();
+        assert.strictEqual(json.filters.min_score, 99);
+        assert.ok(json.rows.every((r) => r.score >= 99), 'every pick clears the quality floor');
     });
 
     await check('fast takes its time cap from the run data', async () => {

@@ -58,6 +58,8 @@ function runDoc(benchmark, over = {}) {
 
     let benchmarkId;
     let version;
+    let baselineRunId;
+    let candidateRunId;
 
     await check('a benchmark is created, drafted and frozen into a version', async () => {
         const created = await t.get('/api/v1/benchmarks', { bearer: writer, json: definition() });
@@ -96,10 +98,28 @@ function runDoc(benchmark, over = {}) {
         const verified = await t.get('/api/v1/runs', { bearer: publisher, json: runDoc(`${benchmarkId}@${version}`) });
         assert.strictEqual(verified.status, 201, verified.text);
         assert.strictEqual(verified.json().run.provenance, 'verified');
+        baselineRunId = verified.json().run.id;
         const submitted = await t.get('/api/v1/runs', { as: alice, json: runDoc(`${benchmarkId}@${version}`, { model: 'gpt-5' }) });
         assert.strictEqual(submitted.status, 201, submitted.text);
         assert.strictEqual(submitted.json().run.provenance, 'submitted');
         assert.strictEqual(submitted.json().run.executor.kind, 'submitted');
+        const candidate = await t.get('/api/v1/runs', { bearer: publisher, json: runDoc(`${benchmarkId}@${version}`, {
+            model: 'claude-opus-4.1', score: 95, hardware: { gpu: 'RTX 4090', vram_gb: 24 }, tokens: 1000, ms: 2000,
+            tasks: [{ task_id: 't1', score: 95, cost_usd: 0.01, ms: 2000, tokens: 1000, artifacts: [] }],
+        }) });
+        assert.strictEqual(candidate.status, 201, candidate.text);
+        candidateRunId = candidate.json().run.id;
+    });
+
+    await check('the version feed returns a paired bootstrap diff and local hardware measurements', async () => {
+        const diff = await t.get(`/api/v1/versions/diff?baseline=${baselineRunId}&candidate=${candidateRunId}`);
+        assert.strictEqual(diff.status, 200, diff.text);
+        assert.strictEqual(diff.json().diff.paired_tasks, 1);
+        assert.strictEqual(diff.json().diff.mean_delta, 5);
+        const local = await t.get('/api/v1/local/runs?hardware=RTX%204090');
+        assert.strictEqual(local.status, 200, local.text);
+        assert.ok(local.json().runs.some((run) => run.model === 'claude-opus-4.1'));
+        assert.strictEqual(local.json().runs[0].aggregate_tokens_per_second, 500);
     });
 
     await check('a human judged run publishes null scores and keeps its output on the framed render path', async () => {
