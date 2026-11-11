@@ -193,7 +193,7 @@ function createPageRoutes(ctx) {
         try {
             const made = await registry.createBenchmark({
                 owner: subject, title: definition.title, description: definition.description, kind: definition.kind,
-                tags: definition.tags, visibility: 'private', definition, subject,
+                tags: definition.tags, definition, subject,
             });
             if (!made.ok) return fail(made.status || 422, made.message || 'The benchmark could not be made.');
             const frozen = await registry.freezeVersion(made.benchmark.id, { definition, subject, validate: validateBenchmark });

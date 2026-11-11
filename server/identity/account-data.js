@@ -32,6 +32,7 @@ const TABLES = [
     { table: 'bench_rounds', subject: 'created_by', file: 'bench_rounds.json', erase: 'delete' },
     { table: 'bench_tasks', subject: 'created_by', file: 'bench_tasks.json', erase: 'delete' },
     { table: 'bench_evals', subject: 'owner', file: 'bench_evals.json', erase: 'delete' },
+    { table: 'bench_share_defaults', subject: 'owner_subject', file: 'bench_share_defaults.json', erase: 'delete' },
     // The runs they submitted and the benchmarks they watch: theirs, so they go.
     { table: 'bench_runs', subject: 'created_by', file: 'bench_runs.json', erase: 'delete' },
     { table: 'bench_watches', subject: 'subject', file: 'bench_watches.json', erase: 'delete' },

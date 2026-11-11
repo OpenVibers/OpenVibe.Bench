@@ -12,7 +12,7 @@
  *   - notify             Network's notification push; a refusal is logged, never allowed to stall the queue
  *   - onAudienceChange   keeps bench_benchmarks.visibility in step (public→public, link→unlisted, people/private→private), so
  *                        the registry, the sitemap and Search drop it at once
- *   - onOwnerChange      moves bench_benchmarks.created_by to the new owner
+ *   - onOwnerChange      moves bench_benchmarks.owner and created_by to the new owner
  *
  * A private benchmark is registered Only me. The sheet on it can name people ("look at this before
  * I share it"); a public one is Everyone, an unlisted one is Anyone with the link. The row's own
@@ -25,7 +25,7 @@ const SERVICE = 'bench';
 const KIND = 'benchmark';
 const AUDIENCES = ['public', 'link', 'people', 'private'];
 /** Bench's visibility words to the SDK's, and back. */
-const TO_SDK = { public: 'public', unlisted: 'link', private: 'private' };
+const TO_SDK = { public: 'public', link: 'link', unlisted: 'link', people: 'people', private: 'private' };
 const FROM_SDK = { public: 'public', link: 'unlisted', people: 'private', private: 'private' };
 
 const refOf = (id) => ({ service: SERVICE, kind: KIND, id: String(id) });
@@ -111,7 +111,7 @@ function createSharing({ db, config, now = Date.now, fetchImpl = globalThis.fetc
     async function onOwnerChange(ref, from, to, tx) {
         if (ref.service !== SERVICE || ref.kind !== KIND) return;
         const owner = to && to.type === 'user' ? to.id : null;
-        await tx.exec('UPDATE bench_benchmarks SET created_by = $1, updated_at = now() WHERE id = $2', [owner, ref.id]);
+        await tx.exec('UPDATE bench_benchmarks SET owner = $1, created_by = $1, updated_at = now() WHERE id = $2', [owner, ref.id]);
     }
 
     const shares = createShares({
@@ -126,6 +126,33 @@ function createSharing({ db, config, now = Date.now, fetchImpl = globalThis.fetc
     const sv = (viewer) => shareViewer(viewer);
     const at = (id) => refOf(id);
 
+    async function defaultAudience(owner) {
+        const row = await db.maybe('SELECT audience FROM bench_share_defaults WHERE owner_subject = $1', [owner]);
+        return row ? row.audience : 'private';
+    }
+    async function setDefaultAudience(owner, audience) {
+        if (!AUDIENCES.includes(audience)) throw new Error('Invalid benchmark default');
+        await db.exec(`INSERT INTO bench_share_defaults (owner_subject, audience) VALUES ($1, $2)
+            ON CONFLICT (owner_subject) DO UPDATE SET audience = excluded.audience, updated_at = now()`, [owner, audience]);
+    }
+    async function applyDefault(owner, audience) {
+        if (!AUDIENCES.includes(audience)) throw new Error('Invalid benchmark default');
+        const rows = await db.many('SELECT id FROM bench_benchmarks WHERE owner = $1', [owner]);
+        let changed = 0;
+        for (const row of rows) {
+            const current = await db.maybe('SELECT audience FROM shares WHERE service = $1 AND kind = $2 AND resource_id = $3', [SERVICE, KIND, row.id]);
+            if (!current) {
+                await shares.register(at(row.id), { owner_subject: { type: 'user', id: owner }, audience });
+                await onAudienceChange(at(row.id), audience, db);
+                changed++;
+            } else if (current.audience !== audience) {
+                await shares.setAudience(sv({ subject: owner }), at(row.id), audience);
+                changed++;
+            }
+        }
+        return changed;
+    }
+
     return {
         shares,
         SERVICE,
@@ -133,6 +160,7 @@ function createSharing({ db, config, now = Date.now, fetchImpl = globalThis.fetc
         AUDIENCES,
         refOf,
         shareViewer,
+        defaultAudience, setDefaultAudience, applyDefault,
         /** Register a post with the sharing system (inside the post's own transaction). */
         register: async (viewer, id, audience = 'private') => await shares.register(at(id), {
             owner_subject: viewer && viewer.subject ? { type: String(viewer.subject).startsWith('gst_') ? 'guest' : 'user', id: viewer.subject } : { type: 'service', id: SERVICE },
