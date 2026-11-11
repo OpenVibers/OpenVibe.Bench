@@ -104,18 +104,27 @@ function whySentence(rows, kindName) {
  * The answer. Reads the controls (with the free text read first, so the words can set them), and returns the frontier
  * with every number that made it.
  */
-async function answer(ctx, { kind = '', maxCost = null, fast = false, q = '', kinds = KINDS } = {}) {
+async function answer(ctx, { kind = '', maxCost = null, minScore = null, fast = false, q = '', kinds = KINDS } = {}) {
     const parsed = q ? parsePick(q, { kinds }) : { kind: null, max_cost: null, fast: false, notes: [] };
     const kindId = parsed.kind || (kind && kindById(kind) ? kind : null) || await busiestKind(ctx);
     const price = parsed.max_cost != null ? parsed.max_cost : (maxCost == null || maxCost === '' ? null : Number(maxCost));
+    const qualityBar = minScore == null || minScore === '' ? null : Number(minScore);
     const wantFast = parsed.fast || !!fast;
 
     const all = await ctx.bench.valueRows(kindId);
+    let exchangeOffers = [];
+    if (ctx.ai && typeof ctx.ai.market === 'function') {
+        try {
+            const market = await ctx.ai.market({ openWeights: false, limit: 500 });
+            exchangeOffers = Array.isArray(market && market.offers) ? market.offers : [];
+        } catch { /* Exchange prices may be temporarily unavailable; measured Bench costs remain available. */ }
+    }
     const fit = await boardForKind(ctx, kindId);
     const bands = bandMap(fit && fit.fit);
 
     // The price comes first: a model over it is out whatever else it does.
-    const priced = price == null ? all : all.filter((r) => r.cost_per_solved != null && r.cost_per_solved <= price + 1e-9);
+    const qualified = qualityBar == null ? all : all.filter((r) => r.score >= qualityBar);
+    const priced = price == null ? qualified : qualified.filter((r) => r.cost_per_solved != null && r.cost_per_solved <= price + 1e-9);
 
     // "Fast" is a time cap taken from the run data: the middle of the models' median times.
     const fastCap = wantFast ? median(priced.map((r) => r.median_ms).filter((v) => v > 0)) : null;
@@ -126,7 +135,8 @@ async function answer(ctx, { kind = '', maxCost = null, fast = false, q = '', ki
         .map((r) => ({ ...r, model: r.subject, cost: r.cost_per_solved }));
     const front = frontier(comparable);
     const order = new Map(comparable.map((r, i) => [r.subject, i]));
-    front.sort((a, b) => (b.score - a.score)
+    front.sort((a, b) => (qualityBar == null ? b.score - a.score : (a.cost_per_solved - b.cost_per_solved))
+        || (b.score - a.score)
         || ((a.cost_per_solved == null ? Infinity : a.cost_per_solved) - (b.cost_per_solved == null ? Infinity : b.cost_per_solved))
         || a.subject.localeCompare(b.subject));
 
@@ -141,6 +151,8 @@ async function answer(ctx, { kind = '', maxCost = null, fast = false, q = '', ki
             median_ms: r.median_ms,
             runs: r.runs,
             thin: r.runs < MIN_RUNS,
+            exchange_offers: exchangeOffers.filter((offer) => String(offer.model || '').toLowerCase() === r.subject.toLowerCase())
+                .map((offer) => ({ provider: offer.provider || null, provider_model: offer.provider_model || null, price: offer.price ?? null, checked_at: offer.checked_at || offer.updated_at || null })),
             sample: await sampleFor(ctx, kindId, r.subject),
         });
     }
@@ -163,15 +175,17 @@ async function answer(ctx, { kind = '', maxCost = null, fast = false, q = '', ki
         controls: {
             kind: kindId,
             max_cost: price == null ? null : price,
+            min_score: qualityBar,
             fast: wantFast,
             q: String(q || ''),
             notes: parsed.notes || [],
         },
-        filters: { max_cost: price == null ? null : price, fast: wantFast, fast_cap_ms: fastCap, min_runs: MIN_RUNS },
+        filters: { max_cost: price == null ? null : price, min_score: qualityBar, fast: wantFast, fast_cap_ms: fastCap, min_runs: MIN_RUNS },
         rows,
         also_ran: alsoRan,
         why: whySentence(rows, kindInfo.name),
-        counts: { models: all.length, priced: priced.length, timed: timed.length, frontier: rows.length, others, thin_elsewhere: thinElsewhere },
+        counts: { models: all.length, qualified: qualified.length, priced: priced.length, timed: timed.length, frontier: rows.length, others, thin_elsewhere: thinElsewhere },
+        price_source: 'frontier order uses measured cost_per_solved from Bench; current Exchange offer prices are attached when available but are not treated as per-task cost',
         generated_at: new Date().toISOString(),
     };
 }

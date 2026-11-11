@@ -16,9 +16,12 @@ const str = (v) => (typeof v === 'string' ? v : '');
 
 function readControls(query) {
     const maxCost = str(query.max_cost);
+    const rawScore = str(query.min_score);
+    const score = rawScore === '' ? null : Number(rawScore);
     return {
         kind: str(query.kind).slice(0, 80),
         maxCost: maxCost === '' ? null : Number(maxCost),
+        minScore: Number.isFinite(score) && score >= 0 && score <= 100 ? score : null,
         fast: str(query.fast) === '1' || str(query.fast) === 'true',
         q: str(query.q).slice(0, 200),
     };

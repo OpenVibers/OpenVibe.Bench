@@ -147,6 +147,28 @@ async function createApp(opts = {}) {
             ],
             responses: { '200': { description: 'The fitted rating board; sparse models are omitted' }, '404': { description: 'No public rating kind' }, '422': { description: 'Invalid category' } },
         } };
+        paths['/api/v1/pick'] = { get: {
+            operationId: 'bench.pick.get', summary: 'Cheapest measured models that clear a quality bar', security: [],
+            parameters: [
+                { name: 'kind', in: 'query', schema: { type: 'string' } },
+                { name: 'min_score', in: 'query', description: 'Minimum Bench score from 0 to 100', schema: { type: 'number', minimum: 0, maximum: 100 } },
+                { name: 'max_cost', in: 'query', description: 'Maximum measured cost per solved task in USD', schema: { type: 'number', minimum: 0 } },
+            ],
+            responses: { '200': { description: 'Measured quality and cost frontier; unknown prices stay unknown' } },
+        } };
+        paths['/api/v1/local/runs'] = { get: {
+            operationId: 'bench.localRuns.get', summary: 'Measured public runs for a hardware description', security: [],
+            parameters: [{ name: 'hardware', in: 'query', required: true, schema: { type: 'string', maxLength: 120 } }],
+            responses: { '200': { description: 'Public verified runs with reported hardware, speed, score and frontier gap' } },
+        } };
+        paths['/api/v1/versions/diff'] = { get: {
+            operationId: 'bench.versionDiff.get', summary: 'Paired task-level comparison of two runs on one frozen benchmark version', security: [],
+            parameters: [
+                { name: 'baseline', in: 'query', required: true, schema: { type: 'string' } },
+                { name: 'candidate', in: 'query', required: true, schema: { type: 'string' } },
+            ],
+            responses: { '200': { description: 'Paired score deltas, 95% bootstrap interval, item changes and effect-size power estimate' }, '400': { description: 'Runs do not share a frozen benchmark version' }, '404': { description: 'No public verified run' } },
+        } };
         res.set('Cache-Control', 'public, max-age=3600').set('Access-Control-Allow-Origin', '*').json({ ...doc, paths });
     });
     // /.well-known/agent.json (openvibe-shared/agent-layer, SEO-2): what this site serves, for agents.

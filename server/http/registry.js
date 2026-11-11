@@ -21,6 +21,7 @@
 const express = require('express');
 const { http } = require('openvibe-contracts');
 const { asyncRouter } = require('./router');
+const { compareRuns: compareVersionRuns } = require('../bench/version-diff');
 const { sameOrigin } = require('./same-origin');
 const { validateBenchmark, validateRun } = require('../bench/validate');
 const { canViewBenchmark } = require('../bench/registry');
@@ -359,6 +360,54 @@ function createRegistryApi(ctx) {
             };
             res.set('Cache-Control', allPublic ? 'public, max-age=60' : 'private, no-store');
             return res.json({ compare });
+        } catch (err) { return failed(res, err); }
+    });
+
+    // A paired release diff: both runs must be public, verified, and on the identical frozen task set.
+    r.get('/versions/diff', async (req, res) => {
+        const baselineId = String(req.query.baseline || '');
+        const candidateId = String(req.query.candidate || '');
+        if (!baselineId || !candidateId || baselineId === candidateId) return invalid(res, 'baseline and candidate must name two distinct run ids');
+        try {
+            const [baseline, candidate] = await Promise.all([registry.getRun(baselineId), registry.getRun(candidateId)]);
+            if (!baseline || !candidate) return problem(res, 404, 'bench.run_not_found', 'No such run.');
+            const [baseBenchmark, candidateBenchmark] = await Promise.all([
+                registry.getBenchmark(baseline.benchmark_id), registry.getBenchmark(candidate.benchmark_id),
+            ]);
+            if (!baseBenchmark || !candidateBenchmark || baseBenchmark.visibility !== 'public' || candidateBenchmark.visibility !== 'public'
+                || baseline.provenance !== 'verified' || candidate.provenance !== 'verified') {
+                return problem(res, 404, 'bench.run_not_found', 'No such public verified run.');
+            }
+            if (baseline.benchmark_id !== candidate.benchmark_id || baseline.benchmark_version !== candidate.benchmark_version) {
+                return invalid(res, 'version diffs require the same public benchmark and frozen version');
+            }
+            const diff = compareVersionRuns(baseline, candidate);
+            res.set('Cache-Control', 'public, max-age=60');
+            return res.json({ diff });
+        } catch (err) { return failed(res, err); }
+    });
+
+    // Hardware results are measured runs only. No speed or fit estimates are inferred from model names.
+    r.get('/local/runs', async (req, res) => {
+        const hardwareQuery = String(req.query.hardware || '').trim().slice(0, 120);
+        if (!hardwareQuery) return invalid(res, 'hardware is required, for example ?hardware=RTX%204090');
+        const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
+        try {
+            const runs = await registry.listRuns({ publicOnly: true, verifiedOnly: true, limit: 100 });
+            const matching = runs.filter((run) => run.hardware && JSON.stringify(run.hardware).toLowerCase().includes(hardwareQuery.toLowerCase()));
+            const bestByBenchmark = new Map();
+            for (const run of runs) {
+                const key = `${run.benchmark_id}@${run.benchmark_version}`;
+                bestByBenchmark.set(key, Math.max(bestByBenchmark.get(key) ?? -Infinity, Number(run.score) || 0));
+            }
+            res.set('Cache-Control', 'public, max-age=60');
+            return res.json({ schema: 'bench.local-runs@1', hardware_query: hardwareQuery, source: 'public verified Bench runs', count: Math.min(limit, matching.length), runs: matching.slice(0, limit).map((run) => ({
+                id: run.id, benchmark: run.benchmark, model: run.model, hardware: run.hardware,
+                score: run.score, frontier_score: bestByBenchmark.get(`${run.benchmark_id}@${run.benchmark_version}`) ?? null,
+                gap_to_frontier: run.score == null ? null : (bestByBenchmark.get(`${run.benchmark_id}@${run.benchmark_version}`) - run.score),
+                cost_usd: run.cost_usd, ms: run.ms, tokens: run.tokens, aggregate_tokens_per_second: run.ms > 0 ? Number((run.tokens * 1000 / run.ms).toFixed(3)) : null,
+                created_at: run.created_at,
+            })) });
         } catch (err) { return failed(res, err); }
     });
 
