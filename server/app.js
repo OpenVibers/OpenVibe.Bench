@@ -153,8 +153,10 @@ async function createApp(opts = {}) {
                 { name: 'kind', in: 'query', schema: { type: 'string' } },
                 { name: 'min_score', in: 'query', description: 'Minimum Bench score from 0 to 100', schema: { type: 'number', minimum: 0, maximum: 100 } },
                 { name: 'max_cost', in: 'query', description: 'Maximum measured cost per solved task in USD', schema: { type: 'number', minimum: 0 } },
+                { name: 'input_tokens', in: 'query', description: 'Token budget for current Exchange price estimates', schema: { type: 'integer', minimum: 0, maximum: 1000000, default: 1000 } },
+                { name: 'output_tokens', in: 'query', description: 'Token budget for current Exchange price estimates', schema: { type: 'integer', minimum: 0, maximum: 1000000, default: 1000 } },
             ],
-            responses: { '200': { description: 'Measured quality and cost frontier; unknown prices stay unknown' } },
+            responses: { '200': { description: 'Measured Bench quality and costs plus the cheapest exact-match Exchange offer under the token budget; hosted picks need three Bench runs' } },
         } };
         paths['/api/v1/local/runs'] = { get: {
             operationId: 'bench.localRuns.get', summary: 'Measured public runs for a hardware description', security: [],
