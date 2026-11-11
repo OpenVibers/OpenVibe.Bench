@@ -22,6 +22,8 @@ function readControls(query) {
         kind: str(query.kind).slice(0, 80),
         maxCost: maxCost === '' ? null : Number(maxCost),
         minScore: Number.isFinite(score) && score >= 0 && score <= 100 ? score : null,
+        inputTokens: str(query.input_tokens) === '' ? 1000 : Number(query.input_tokens),
+        outputTokens: str(query.output_tokens) === '' ? 1000 : Number(query.output_tokens),
         fast: str(query.fast) === '1' || str(query.fast) === 'true',
         q: str(query.q).slice(0, 200),
     };

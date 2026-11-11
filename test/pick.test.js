@@ -11,6 +11,7 @@ const { frontier } = require('../server/pick/frontier');
 const { parsePick } = require('../server/pick/parser');
 const { KINDS } = require('../server/kinds');
 const { compareRuns: compareVersionRuns } = require('../server/bench/version-diff');
+const { estimateExchangeTask } = require('../server/pick/pick');
 
 (async () => {
     await check('the frontier drops the models another model beats on score and on cost', () => {
@@ -22,6 +23,11 @@ const { compareRuns: compareVersionRuns } = require('../server/bench/version-dif
         ];
         // a beats d on score and on cost, so d is not on the frontier; b is cheaper than a, so it stays.
         assert.deepStrictEqual(frontier(rows).map((r) => r.model), ['a', 'b', 'c']);
+    });
+
+    await check('Exchange task prices use explicit input and output token budgets', () => {
+        assert.strictEqual(estimateExchangeTask({ price: { in: 2, out: 4 } }, 2000, 1000), 0.008);
+        assert.strictEqual(estimateExchangeTask({ price: { in: 2 } }, 2000, 1000), null);
     });
 
     await check('the version diff pairs identical tasks and reports a seeded confidence interval', () => {
@@ -116,6 +122,18 @@ const { compareRuns: compareVersionRuns } = require('../server/bench/version-dif
         const json = (await t.get('/api/v1/pick?kind=design.page&min_score=99')).json();
         assert.strictEqual(json.filters.min_score, 99);
         assert.ok(json.rows.every((r) => r.score >= 99), 'every pick clears the quality floor');
+    });
+
+    await check('the cheapest qualifying hosted offer is selected using current Exchange prices', async () => {
+        const oldMarket = t.ctx.ai.market;
+        t.ctx.ai.market = async () => ({ offers: [{
+            model: 'alpha-1', provider: 'acme', provider_model: 'alpha-1', price: { in: 2, out: 4 }, checked_at: '2026-11-10',
+        }] });
+        const json = (await t.get('/api/v1/pick?kind=design.page&min_score=0&input_tokens=2000&output_tokens=1000')).json();
+        t.ctx.ai.market = oldMarket;
+        assert.strictEqual(json.cheapest_that_clears_quality_bar.model, 'alpha-1');
+        assert.strictEqual(json.cheapest_that_clears_quality_bar.cost_usd, 0.008);
+        assert.deepStrictEqual(json.price_assumptions, { input_tokens: 2000, output_tokens: 1000, exchange_price_unit: 'USD per million tokens' });
     });
 
     await check('fast takes its time cap from the run data', async () => {

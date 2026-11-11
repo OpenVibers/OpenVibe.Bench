@@ -26,6 +26,13 @@ const MIN_RUNS = 3;
 
 const num = (v, d = 0) => (v == null || Number.isNaN(Number(v)) ? d : Number(v));
 
+function estimateExchangeTask(offer, inputTokens, outputTokens) {
+    const input = Number(offer && offer.price && offer.price.in);
+    const output = Number(offer && offer.price && offer.price.out);
+    if (!Number.isFinite(input) || !Number.isFinite(output) || input < 0 || output < 0) return null;
+    return Math.round(((inputTokens * input + outputTokens * output) / 1e6) * 1e9) / 1e9;
+}
+
 function median(list) {
     const xs = list.map(Number).filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
     if (!xs.length) return null;
@@ -104,11 +111,13 @@ function whySentence(rows, kindName) {
  * The answer. Reads the controls (with the free text read first, so the words can set them), and returns the frontier
  * with every number that made it.
  */
-async function answer(ctx, { kind = '', maxCost = null, minScore = null, fast = false, q = '', kinds = KINDS } = {}) {
+async function answer(ctx, { kind = '', maxCost = null, minScore = null, inputTokens = 1000, outputTokens = 1000, fast = false, q = '', kinds = KINDS } = {}) {
     const parsed = q ? parsePick(q, { kinds }) : { kind: null, max_cost: null, fast: false, notes: [] };
     const kindId = parsed.kind || (kind && kindById(kind) ? kind : null) || await busiestKind(ctx);
     const price = parsed.max_cost != null ? parsed.max_cost : (maxCost == null || maxCost === '' ? null : Number(maxCost));
     const qualityBar = minScore == null || minScore === '' ? null : Number(minScore);
+    const inputTokenBudget = Math.min(1000000, Math.max(0, num(inputTokens, 1000)));
+    const outputTokenBudget = Math.min(1000000, Math.max(0, num(outputTokens, 1000)));
     const wantFast = parsed.fast || !!fast;
 
     const all = await ctx.bench.valueRows(kindId);
@@ -140,6 +149,28 @@ async function answer(ctx, { kind = '', maxCost = null, minScore = null, fast = 
         || ((a.cost_per_solved == null ? Infinity : a.cost_per_solved) - (b.cost_per_solved == null ? Infinity : b.cost_per_solved))
         || a.subject.localeCompare(b.subject));
 
+    const rowOffers = new Map();
+    const currentPrices = [];
+    for (const row of all) {
+        const offers = exchangeOffers.filter((offer) => [offer.model, offer.provider_model].some((model) => String(model || '').toLowerCase() === row.subject.toLowerCase()));
+        const pricedOffers = offers.map((offer) => ({
+            provider: offer.provider || null,
+            provider_model: offer.provider_model || null,
+            price: offer.price || null,
+            checked_at: offer.checked_at || offer.updated_at || null,
+            estimated_task_cost_usd: estimateExchangeTask(offer, inputTokenBudget, outputTokenBudget),
+        }));
+        rowOffers.set(row.subject, pricedOffers);
+        if (qualityBar != null && row.score >= qualityBar && row.runs >= MIN_RUNS) {
+            for (const offer of pricedOffers) if (offer.estimated_task_cost_usd != null) currentPrices.push({
+                model: row.subject, score: row.score, cost_usd: offer.estimated_task_cost_usd,
+                provider: offer.provider, provider_model: offer.provider_model, price: offer.price, checked_at: offer.checked_at,
+            });
+        }
+    }
+    const withinCurrentPrice = price == null ? currentPrices : currentPrices.filter((offer) => offer.cost_usd <= price + 1e-9);
+    withinCurrentPrice.sort((a, b) => a.cost_usd - b.cost_usd || b.score - a.score || a.model.localeCompare(b.model));
+
     const rows = [];
     for (const r of front) {
         rows.push({
@@ -151,8 +182,7 @@ async function answer(ctx, { kind = '', maxCost = null, minScore = null, fast = 
             median_ms: r.median_ms,
             runs: r.runs,
             thin: r.runs < MIN_RUNS,
-            exchange_offers: exchangeOffers.filter((offer) => String(offer.model || '').toLowerCase() === r.subject.toLowerCase())
-                .map((offer) => ({ provider: offer.provider || null, provider_model: offer.provider_model || null, price: offer.price ?? null, checked_at: offer.checked_at || offer.updated_at || null })),
+            exchange_offers: rowOffers.get(r.subject) || [],
             sample: await sampleFor(ctx, kindId, r.subject),
         });
     }
@@ -181,13 +211,17 @@ async function answer(ctx, { kind = '', maxCost = null, minScore = null, fast = 
             notes: parsed.notes || [],
         },
         filters: { max_cost: price == null ? null : price, min_score: qualityBar, fast: wantFast, fast_cap_ms: fastCap, min_runs: MIN_RUNS },
+        price_assumptions: { input_tokens: inputTokenBudget, output_tokens: outputTokenBudget, exchange_price_unit: 'USD per million tokens' },
+        cheapest_that_clears_quality_bar: qualityBar == null ? null : (withinCurrentPrice[0] || null),
+        cheapest_that_clears_quality_bar_reason: qualityBar == null ? 'Set min_score to choose the cheapest current Exchange offer among models clearing a measured Bench quality bar.'
+            : (withinCurrentPrice.length ? null : `No exact Bench model and Exchange offer match with a current input and output price was found among models with at least ${MIN_RUNS} runs within the selected cost limit.`),
         rows,
         also_ran: alsoRan,
         why: whySentence(rows, kindInfo.name),
         counts: { models: all.length, qualified: qualified.length, priced: priced.length, timed: timed.length, frontier: rows.length, others, thin_elsewhere: thinElsewhere },
-        price_source: 'frontier order uses measured cost_per_solved from Bench; current Exchange offer prices are attached when available but are not treated as per-task cost',
+        price_source: 'historical frontier uses measured Bench cost_per_solved; cheapest_that_clears_quality_bar uses current exact-match Exchange input/output prices and the stated token budgets',
         generated_at: new Date().toISOString(),
     };
 }
 
-module.exports = { answer, PRICE_STEPS, MIN_RUNS, median, bandMap, whySentence };
+module.exports = { answer, PRICE_STEPS, MIN_RUNS, median, bandMap, whySentence, estimateExchangeTask };
