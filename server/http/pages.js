@@ -100,9 +100,11 @@ function createPageRoutes(ctx) {
         const id = out.benchmark.id;
         const owner = subjectOf(req) != null && String(out.benchmark.owner) === String(subjectOf(req));
         const since = parseSince(req.query.since);
-        const [rankings, runs] = await Promise.all([
+        const [rankings, runs, audienceRow] = await Promise.all([
             registry.rankings({ benchmark: id, metric, since: since ? since.text : null }),
             registry.listRuns({ benchmark: id, limit: 8 }),
+            // The column maps Specific people to private; the share row names the real audience for the page's cue.
+            ctx.sharing ? ctx.sharing.shareOf(id).catch(() => null) : Promise.resolve(null),
         ]);
         const allTime = since ? await registry.rankings({ benchmark: id, metric }) : null;
         const isPublic = out.benchmark.visibility === 'public';
@@ -126,6 +128,7 @@ function createPageRoutes(ctx) {
                 benchmark: out.benchmark, definition: out.definition, version: out.version && out.version.version,
                 rankings, metric, runs, codesRunUrl: config.codesRunUrl || null, viewer: req.viewer, baseUrl: base(),
                 ownBoards, share, shared, owner, since: rankings && rankings.since, allTimeEntries: allTime && allTime.entries,
+                audience: audienceRow ? audienceRow.audience : null,
             }))),
         }, status);
     };
@@ -214,6 +217,49 @@ function createPageRoutes(ctx) {
         return renderBenchmark(req, res, out, { shared: true });
     });
 
+    // ---- a person's own benchmarks: the default audience, "apply to all", and each Share button -----------------
+    const myBenchmarksPage = async (req, res, extra = {}) => {
+        const subject = subjectOf(req);
+        if (!subject) return res.redirect(302, `/auth/login?next=${encodeURIComponent('/benchmarks/mine')}`);
+        const mine = await registry.listBenchmarks({ owner: subject, limit: 200, viewer: subject });
+        const counts = await registry.runCounts();
+        for (const b of mine) {
+            b.runs = counts.get(b.id) || 0;
+            // The column says private for both Only me and Specific people; the share row names the real audience.
+            const row = ctx.sharing ? await ctx.sharing.shareOf(b.id).catch(() => null) : null;
+            if (row) b.audience = row.audience;
+        }
+        const defaultAudience = ctx.sharing ? await ctx.sharing.defaultAudience(subject) : 'private';
+        return page(req, res, {
+            index: false, cache: null,
+            title: 'Your benchmarks',
+            description: 'Your benchmarks: the default audience for new ones, and who can open each one.',
+            body: raw(String(results.myBenchmarks({ benchmarks: mine, defaultAudience, baseUrl: base(), ...extra }))),
+        }, extra.status || 200);
+    };
+    r.get('/benchmarks/mine', async (req, res) => {
+        const saved = req.query.saved === '1';
+        const changed = Number.parseInt(req.query.changed, 10) || 0;
+        const notice = saved
+            ? `Sharing preference saved.${changed ? ` Updated ${changed} existing ${changed === 1 ? 'benchmark' : 'benchmarks'}.` : ''}`
+            : null;
+        return myBenchmarksPage(req, res, notice ? { notice } : {});
+    });
+    r.post('/benchmarks/mine/default', express.urlencoded({ extended: false, limit: '16kb' }), ctx.principal.middleware, async (req, res) => {
+        if (!sameOrigin(req, config)) return res.status(403).type('text').send('This form only works from Bench itself.');
+        const subject = subjectOf(req);
+        if (!subject) return res.redirect(303, `/auth/login?next=${encodeURIComponent('/benchmarks/mine')}`);
+        const body = req.body && typeof req.body === 'object' ? req.body : {};
+        const audience = String(body.audience || '');
+        if (!ctx.sharing || !ctx.sharing.AUDIENCES.includes(audience)) {
+            return myBenchmarksPage(req, res, { status: 422, error: 'Choose Everyone, Anyone with the link, Specific people, or Only me.' });
+        }
+        await ctx.sharing.setDefaultAudience(subject, audience);
+        const changed = body.apply === '1' ? await ctx.sharing.applyDefault(subject, audience) : 0;
+        const query = new URLSearchParams({ saved: '1', changed: String(changed) });
+        return res.redirect(303, `/benchmarks/mine?${query}`);
+    });
+
     // The owner shares, unshares or publishes: a plain same-origin form post.
     r.post('/benchmarks/:ref/share', express.urlencoded({ extended: false, limit: '16kb' }), ctx.principal.middleware, async (req, res) => {
         if (!sameOrigin(req, config)) return res.status(403).type('text').send('This form only works from Bench itself.');
@@ -275,6 +321,14 @@ function createPageRoutes(ctx) {
     r.get('/benchmarks/:ref', async (req, res) => {
         const out = await readableBenchmark(req, req.params.ref);
         if (!out) return notFound(req, res, 'benchmark');
+        // The public page moved to Report (2026-11-08), but Report reads only the public API: its owner, a named
+        // reader and an unlisted link keep the page here.
+        const subject = subjectOf(req);
+        const owner = subject != null && String(out.benchmark.owner) === String(subject);
+        if (!owner && out.benchmark.visibility === 'public') {
+            const report = String(config.reportUrl || 'https://openvibe.report').replace(/\/+$/, '');
+            return res.redirect(301, `${report}/ai/${encodeURIComponent(out.benchmark.id)}`);
+        }
         return renderBenchmark(req, res, out);
     });
 

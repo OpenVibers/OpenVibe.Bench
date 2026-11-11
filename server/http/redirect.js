@@ -7,11 +7,16 @@
  *
  *   /                         → /ai
  *   /benchmarks               → /ai
- *   /benchmarks/<id>[/…]      → /ai/<id>
+ *   /benchmarks/<id>          → /ai/<id> when it is public and the viewer is not its owner; otherwise the page
+ *                               stays here, because Report reads only Bench's public API (a private benchmark,
+ *                               a named reader and a share link have no Report page).
  *   /models/<model>           → /ai/models/<model>
  *   /compare                  → /ai/compare
  *   /docs                     → /ai/method
  *   /showcase, /gallery, …    → /ai
+ *
+ * The owner's pages stay here: /benchmarks/mine (the default audience and the person's own list), /benchmarks/new,
+ * an unlisted share link (/b/<token>), and the noindex task and run pages.
  */
 
 const DEFAULT_REPORT = 'https://openvibe.report';
@@ -21,7 +26,11 @@ const decode = (s) => { try { return decodeURIComponent(s); } catch { return s; 
 const KEEP = [/^\/render(?:\/|$)/, /^\/vendor(?:\/|$)/, /^\/badge(?:\/|$)/, /^\/embed(?:\/|$)/,
     /^\/api(?:\/|$)/, /^\/mcp(?:\/|$)/, /^\/auth(?:\/|$)/, /^\/shared(?:\/|$)/, /^\/\.well-known(?:\/|$)/,
     /^\/metrics(?:\/|$)/, /^\/release(?:\.json|-metrics)?(?:\/|$)/, /^\/robots\.txt$/, /^\/sitemap\.xml$/,
-    /^\/favicon\.ico$/, /^\/assets(?:\/|$)/];
+    /^\/favicon\.ico$/, /^\/assets(?:\/|$)/,
+    // The owner's pages and the pages Report cannot render: the person's list and default, the create form, an
+    // unlisted share link, and the noindex task/run pages. /benchmarks/<id> itself is decided by its page route.
+    /^\/benchmarks\/mine(?:\/|$)/, /^\/benchmarks\/new(?:\/|$)/,
+    /^\/benchmarks\/[^/]+\/(?:run|tasks\/[^/]+)(?:\/|$)/, /^\/b\/[^/]+$/];
 
 function targetFor(pathname, reportUrl) {
     const base = String(reportUrl || DEFAULT_REPORT).replace(/\/+$/, '');
@@ -30,15 +39,19 @@ function targetFor(pathname, reportUrl) {
     if (p === '/docs' || p === '/docs/') return `${base}/ai/method`;
     if (p === '/compare' || p === '/compare/') return `${base}/ai/compare`;
     if (p === '/benchmarks' || p === '/benchmarks/') return `${base}/ai`;
-    if (p === '/benchmarks/new' || p === '/benchmarks/new/') return `${base}/ai`;
-    const bench = /^\/benchmarks\/([^/]+)(?:\/.*)?$/.exec(p);
+    // A benchmark's own page decides: public pages redirect from the route (which knows the viewer and the
+    // benchmark's owner), while a private benchmark, a named reader and an unlisted link stay on Bench.
+    const bench = /^\/benchmarks\/([^/]+)\/.+$/.exec(p);
     if (bench) return `${base}/ai/${encodeURIComponent(decode(bench[1]))}`;
     const model = /^\/models\/(.+)$/.exec(p);
     if (model) return `${base}/ai/models/${encodeURIComponent(decode(model[1]))}`;
     if (/^\/(?:showcase|gallery|pick|battle|ratings)(?:\/|$)/.test(p)) return `${base}/ai`;
-    if (/^\/b\/[^/]+$/.test(p)) return `${base}/ai`;
     if (/^\/runs\/[^/]+$/.test(p)) return `${base}/ai`;
     if (p === '/llms.txt' || p === '/llms-full.txt') return `${base}${p}`;
+    // A Markdown twin of a public benchmark page follows the page to Report. The detail page itself is decided by
+    // its route (an owner or a named reader keeps it); its twin is a signed-out render, so it stays public-only.
+    const benchTwin = /^\/benchmarks\/([^/]+)\.md$/.exec(p);
+    if (benchTwin) return `${base}/ai/${encodeURIComponent(decode(benchTwin[1]))}.md`;
     // A Markdown twin of a moved page: its Report twin is the moved page's own twin. An unknown twin is still a 404.
     if (p.endsWith('.md')) {
         const page = p === '/index.md' ? '/' : p.slice(0, -3);

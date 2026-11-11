@@ -7,7 +7,7 @@ The shared AI benchmark and comparison engine for every OpenVibe room (plan 2026
 
 Bench is the comparative-evaluation authority. AI stays the run authority, Report the analytics authority, Route the learner, and each room keeps its own pages. Bench owns kinds, tasks, pinned rounds, entries, judgements, ratings, boards, the open dataset and private evals.
 
-**The public pages moved to OpenVibe.Report's AI section (2026-11-08):** `https://openvibe.report/ai`, `/ai/<benchmark>` and `/ai/models/<model>`. This origin's old HTML pages answer `301` there; its API, MCP endpoint, render origin, badges and embeds stay here.
+**The public pages moved to OpenVibe.Report's AI section (2026-11-08):** `https://openvibe.report/ai`, `/ai/<benchmark>` and `/ai/models/<model>`. This origin's old HTML pages answer `301` there; its API, MCP endpoint, render origin, badges and embeds stay here. The owner's pages stay here too: `/benchmarks/mine` (the default audience, "apply to all", and each benchmark's Share button), `/benchmarks/new`, an unlisted share link (`/b/<token>`), and the noindex task and run pages. A benchmark's own page redirects only when it is public and the viewer is not its owner: a private benchmark, a named reader and an unlisted link have no Report page.
 
 - Service id: `bench`
 - Port: `5230`
