@@ -46,6 +46,7 @@ const BENCH_EVENTS = Object.freeze([
     'bench.round.finished',
     'bench.judgement.recorded',
     'bench.rating.changed',
+    'bench.match.recorded',
 ]);
 
 function published(name) {
