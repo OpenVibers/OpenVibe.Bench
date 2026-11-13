@@ -6,6 +6,6 @@
   "summary": "The shared AI benchmark and comparison engine for every room: kinds, pinned rounds, blind judgements, elo/pareto/cost boards, an open dataset per kind, private evals and an MCP endpoint. Its public pages are OpenVibe.Report's AI section since 2026-11-08; this origin answers 301 for them and keeps the API.",
   "contracts": "openvibe-contracts v0.422.0",
   "sdk": "openvibe-sdk v0.166.0",
-  "shared": "openvibe-shared v4.244.0",
+  "shared": "openvibe-shared v4.245.0",
   "updated": "2026-11-13"
 }
