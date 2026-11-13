@@ -109,6 +109,8 @@ function parse(bytes) {
             model: entry.model,
             provider: entry.provider,
             score: scored.length ? scored.reduce((n, t) => n + t.score, 0) / scored.length : null,
+            score_n: scored.length,
+            task_count: entry.tasks.length,
             cost_usd: entry.hasCost ? entry.cost_usd : null,
             tokens: entry.hasTokens ? entry.tokens : null,
             tasks: entry.tasks,

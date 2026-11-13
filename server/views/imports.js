@@ -52,7 +52,12 @@ function previewPage({ imp, benchmark = null, error = null } = {}) {
     const suite = summary.suite ? summary.suite.name : null;
     const head = html`<nav class="br-crumbs" aria-label="Breadcrumb"><a href="/imports">Bring your results</a><span aria-hidden="true">/</span><span>Preview</span></nav>
 <header class="bm-page-h"><p class="bm-kicker">Preview</p><h1>${models.length} model${models.length === 1 ? '' : 's'}, ${taskCount} task${taskCount === 1 ? '' : 's'}, from ${imp.tool} ${imp.tool_version}</h1><p class="bm-lede">Import? Every run below is submitted, not verified, and says which tool it came from.</p></header>`;
-    const list = models.map((m) => html`<li><b>${m.model}</b><span class="br-fine">${m.score == null ? '' : ' · score ' + Math.round(m.score)} · ${(m.tasks || []).length} task${(m.tasks || []).length === 1 ? '' : 's'}${m.cost_usd ? ' · $' + m.cost_usd : ''}</span></li>`);
+    const list = models.map((m) => {
+        const taskCountForModel = (m.tasks || []).length;
+        const scoreText = m.score == null ? ' · score not measured' : ' · score ' + Math.round(m.score);
+        const costText = m.cost_usd == null ? ' · cost not measured' : ' · $' + m.cost_usd;
+        return html`<li><b>${m.model}</b><span class="br-fine">${scoreText} · ${taskCountForModel} task${taskCountForModel === 1 ? '' : 's'}${costText}</span></li>`;
+    });
     return html`<div class="bm-wrap br bm-narrow" id="br-import-preview">${head}
 ${error ? html`<div class="br-note is-bad" role="alert">${error}</div>` : ''}
 <ul class="br-plain">${list}</ul>

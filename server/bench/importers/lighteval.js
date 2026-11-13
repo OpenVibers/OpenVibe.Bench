@@ -84,6 +84,7 @@ function parse(bytes) {
             model,
             provider,
             score: overall,
+            score_n: tasks.length,
             cost_usd: null,
             seed: seed == null ? null : String(seed),
             few_shot: tasks.length && tasks[0].few_shot != null ? tasks[0].few_shot : null,

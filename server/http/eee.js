@@ -67,8 +67,10 @@ function createEeeRoutes(ctx) {
         const { offset, limit } = paging(req);
         const filters = {
             model: req.query.model ? String(req.query.model) : null,
+            family: req.query.family ? String(req.query.family) : null,
             task: req.query.task ? String(req.query.task) : null,
             sourceType: req.query.source_type ? String(req.query.source_type) : null,
+            republishableOnly: req.query.republishable === '1' || req.query.republishable === 'true',
         };
         const [records, total] = await Promise.all([
             eee.listRecords({ ...filters, offset, limit }),

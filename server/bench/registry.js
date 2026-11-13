@@ -27,6 +27,20 @@ const { scoreRuns } = require('./tickets');
 const TICKET_METRICS = Object.freeze(['tickets', 'pass_k', 'pass@k', 'pass^k']);
 
 const num = (v, d = 0) => (v == null || v === '' || Number.isNaN(Number(v)) ? d : Number(v));
+/** A measurement the harness did not record is null, never 0. */
+const numOrNull = (v) => (v == null || v === '' || Number.isNaN(Number(v)) ? null : Number(v));
+/** The sum of measurements, or null when any part is unmeasured: a partial total is not a total. */
+function sumMeasured(values) {
+    const list = Array.isArray(values) ? values : [];
+    if (!list.length) return null;
+    let total = 0;
+    for (const value of list) {
+        const n = numOrNull(value);
+        if (n == null) return null;
+        total += n;
+    }
+    return total;
+}
 const iso = (v) => (v == null ? null : (v instanceof Date ? v.toISOString() : String(v)));
 const refusal = (status, code, message) => ({ ok: false, status, code, message });
 
@@ -196,9 +210,9 @@ function wireRun(row, tasks = null) {
         executor: json(row.executor, {}),
         hardware: json(row.hardware, null),
         score: row.score == null ? null : num(row.score),
-        cost_usd: num(row.cost_usd),
-        ms: num(row.ms),
-        tokens: num(row.tokens),
+        cost_usd: numOrNull(row.cost_usd),
+        ms: numOrNull(row.ms),
+        tokens: numOrNull(row.tokens),
         provenance: row.provenance,
         // Where the run came from: an upload, or a mirror's source with its licence. It is Bench's own field:
         // the published bench.run document closes its shape to the contract, so this sits beside it.
@@ -234,9 +248,9 @@ function wireTask(row) {
     const out = {
         task_id: row.task_id,
         score: row.score == null ? null : num(row.score),
-        cost_usd: num(row.cost_usd),
-        ms: num(row.ms),
-        tokens: num(row.tokens),
+        cost_usd: numOrNull(row.cost_usd),
+        ms: numOrNull(row.ms),
+        tokens: numOrNull(row.tokens),
         artifacts: (Array.isArray(json(row.artifacts, [])) ? json(row.artifacts, []) : []).map((a) => ({ kind: a.kind, url: a.url })).filter((a) => a.url),
         transcript_url: row.transcript_url || null,
     };
@@ -729,20 +743,23 @@ function createRegistry(s, { log = console, sharing = null } = {}) {
             benchmark: `${benchmarkId}@${version}`,
             executor,
             tasks: storedTasks,
-            score: doc.score == null ? null : num(doc.score, 0),
-            cost_usd: num(doc.cost_usd, 0),
-            ms: num(doc.ms, 0),
-            tokens: num(doc.tokens, 0),
+            score: doc.score == null ? null : numOrNull(doc.score),
+            cost_usd: numOrNull(doc.cost_usd),
+            ms: numOrNull(doc.ms),
+            tokens: numOrNull(doc.tokens),
             provenance,
         }, s.iso());
-        const contractCheck = checkContract('bench.run@2', contract);
+        // The published bench.run@2 types cost, time and tokens as numbers. Bench now stores null when a harness did
+        // not measure them, so the shape check sees a copy with those nulls marked as 0 while the stored and returned
+        // document keeps the null. A measured 0 is still 0; only an unmeasured value is null.
+        const contractCheck = checkContract('bench.run@2', contract, { allowMissingMeasurements: true });
         if (!contractCheck.valid) {
             return refusal(400, 'bench.invalid', contractCheck.errors.map((e) => e.message).join('; '));
         }
-        const score = doc.score == null ? null : num(doc.score, 0);
-        const cost = num(doc.cost_usd, 0);
-        const ms = num(doc.ms, 0);
-        const tokens = num(doc.tokens, 0);
+        const score = doc.score == null ? null : numOrNull(doc.score);
+        const cost = numOrNull(doc.cost_usd);
+        const ms = numOrNull(doc.ms);
+        const tokens = numOrNull(doc.tokens);
         await db.tx(async () => {
             await db.exec(
                 `INSERT INTO bench_runs (id, benchmark_id, benchmark_version, model, route, provider, harness, settings, executor,
@@ -760,7 +777,7 @@ function createRegistry(s, { log = console, sharing = null } = {}) {
                     `INSERT INTO bench_run_tasks (id, run_id, task_id, score, cost_usd, ms, tokens, artifacts, transcript_url,
                          added_on, held_out, human_minutes, human_minutes_source, created_at)
                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10::date, $11, $12, $13, $14::timestamptz)`,
-                    [s.newId('brt'), id, String(t.task_id), t.score == null ? null : num(t.score), num(t.cost_usd), num(t.ms), num(t.tokens),
+                    [s.newId('brt'), id, String(t.task_id), t.score == null ? null : num(t.score), numOrNull(t.cost_usd), numOrNull(t.ms), numOrNull(t.tokens),
                         JSON.stringify(Array.isArray(t.artifacts) ? t.artifacts : []), t.transcript_url == null ? null : String(t.transcript_url),
                         addedOn(meta), isHeldOut(meta), humanMinutes(meta), humanMinutesSource(meta), s.iso()],
                 );
@@ -919,9 +936,11 @@ function createRegistry(s, { log = console, sharing = null } = {}) {
             if (!picked.length) return null;
             return {
                 score: picked.reduce((n, row) => n + num(row.score), 0) / picked.length,
-                cost_usd: picked.reduce((n, row) => n + num(row.cost_usd), 0),
-                ms: picked.reduce((n, row) => n + num(row.ms), 0),
-                tokens: picked.reduce((n, row) => n + num(row.tokens), 0),
+                // A sum over the selected tasks is null when any selected task was not measured: an incomplete
+                // total would read as a cheaper or faster run than it is.
+                cost_usd: sumMeasured(picked.map((row) => row.cost_usd)),
+                ms: sumMeasured(picked.map((row) => row.ms)),
+                tokens: sumMeasured(picked.map((row) => row.tokens)),
             };
         }
 
@@ -988,7 +1007,11 @@ function createRegistry(s, { log = console, sharing = null } = {}) {
             const scores = list.map((item) => item.subset && item.subset.score);
             const cleanScores = scores.filter((v) => v != null);
             const costs = list.map((item) => (item.subset ? item.subset.cost_usd : null));
+            const cleanCosts = costs.filter((v) => v != null);
             const times = list.map((item) => (item.subset ? item.subset.ms : null));
+            const cleanTimes = times.filter((v) => v != null);
+            const tokenCounts = list.map((item) => (item.subset ? item.subset.tokens : null));
+            const cleanTokens = tokenCounts.filter((v) => v != null);
             const medScore = median(scores);
             const medCost = median(costs);
             const medMs = median(times);
@@ -1004,8 +1027,12 @@ function createRegistry(s, { log = console, sharing = null } = {}) {
                 model,
                 runs: list.length,
                 score: medScore == null ? null : Math.round(medScore * 1000) / 1000,
+                score_n: cleanScores.length,
                 cost_usd: medCost == null ? null : Math.round(medCost * 1e6) / 1e6,
+                cost_n: cleanCosts.length,
                 ms: medMs == null ? null : Math.round(medMs),
+                ms_n: cleanTimes.length,
+                tokens_n: cleanTokens.length,
                 value: medScore != null && medCost ? Math.round((medScore / medCost) * 1000) / 1000 : null,
                 speed: medScore != null && medMs ? Math.round((medScore / (medMs / 60000)) * 1000) / 1000 : null,
                 consistency: spreads.length ? Math.round(median(spreads) * 1000) / 1000 : null,
@@ -1187,8 +1214,10 @@ function createRegistry(s, { log = console, sharing = null } = {}) {
         if (ref.version != null) { params.push(ref.version); sql += ' AND benchmark_version = $3'; }
         const rows = await db.many(sql, params);
         const scores = rows.filter((r) => r.score != null).map((r) => num(r.score));
-        if (!scores.length) return { benchmark: ref.id, model: String(model), runs: 0, percentile: null, score: num(score) };
-        const value = num(score);
+        const value = numOrNull(score);
+        if (!scores.length || value == null) {
+            return { benchmark: ref.id, model: String(model), runs: scores.length, percentile: null, score: value };
+        }
         const below = scores.filter((v) => v < value).length;
         const equal = scores.filter((v) => v === value).length;
         const pct = Math.round(((below + equal / 2) / scores.length) * 1000) / 10;
@@ -1256,18 +1285,23 @@ function createRegistry(s, { log = console, sharing = null } = {}) {
         const round = (v, p) => (v == null ? null : Math.round(v * p) / p);
         const out = [];
         for (const [benchmarkId, list] of byBenchmark) {
-            const scores = list.map((r) => num(r.score));
+            const scores = list.map((r) => numOrNull(r.score)).filter((v) => v != null);
+            const costs = list.map((r) => numOrNull(r.cost_usd)).filter((v) => v != null);
+            const times = list.map((r) => numOrNull(r.ms)).filter((v) => v != null);
             const b = await getBenchmark(benchmarkId);
             out.push({
                 benchmark_id: benchmarkId,
                 title: b ? b.title : benchmarkId,
                 kind: b ? b.kind : null,
                 runs: list.length,
+                scored_runs: scores.length,
                 score: round(median(scores), 1000),
-                best: Math.max(...scores),
-                worst: Math.min(...scores),
-                cost_usd: round(median(list.map((r) => num(r.cost_usd))), 1e6),
-                ms: round(median(list.map((r) => num(r.ms))), 1),
+                best: scores.length ? Math.max(...scores) : null,
+                worst: scores.length ? Math.min(...scores) : null,
+                cost_usd: round(median(costs), 1e6),
+                cost_runs: costs.length,
+                ms: round(median(times), 1),
+                timed_runs: times.length,
             });
         }
         out.sort((a, b) => b.runs - a.runs || a.title.localeCompare(b.title));
@@ -1352,7 +1386,8 @@ function createRegistry(s, { log = console, sharing = null } = {}) {
             const key = `${row.benchmark_id}:${row.task_id}`;
             if (!groups.has(key)) groups.set(key, { benchmark_id: row.benchmark_id, task_id: String(row.task_id), scores: [], last_run: null });
             const g = groups.get(key);
-            g.scores.push(num(row.score));
+            const value = numOrNull(row.score);
+            if (value != null) g.scores.push(value);
             const at = iso(row.created_at);
             if (!g.last_run || at > g.last_run) g.last_run = at;
         }
@@ -1362,27 +1397,32 @@ function createRegistry(s, { log = console, sharing = null } = {}) {
             benchmark_title: titles.get(g.benchmark_id) || g.benchmark_id,
             task_id: g.task_id,
             runs: g.scores.length,
-            score: Math.round(median(g.scores) * 1000) / 1000,
-            best: Math.round(Math.max(...g.scores) * 1000) / 1000,
-            worst: Math.round(Math.min(...g.scores) * 1000) / 1000,
+            score: g.scores.length ? Math.round(median(g.scores) * 1000) / 1000 : null,
+            best: g.scores.length ? Math.round(Math.max(...g.scores) * 1000) / 1000 : null,
+            worst: g.scores.length ? Math.round(Math.min(...g.scores) * 1000) / 1000 : null,
             last_run: g.last_run,
-        })).sort((a, b) => b.score - a.score || a.task_id.localeCompare(b.task_id));
+        })).sort((a, b) => (b.score == null ? -Infinity : b.score) - (a.score == null ? -Infinity : a.score) || a.task_id.localeCompare(b.task_id));
 
         const totals = await db.maybe(
-            "SELECT COUNT(*)::int AS runs, COALESCE(SUM(r.cost_usd), 0)::numeric AS cost,"
-            + " COALESCE(SUM(r.ms), 0)::int AS ms, COALESCE(SUM(r.tokens), 0)::int AS tokens,"
+            "SELECT COUNT(*)::int AS runs, COUNT(r.cost_usd)::int AS cost_n, SUM(r.cost_usd)::numeric AS cost,"
+            + " COUNT(r.ms)::int AS ms_n, SUM(r.ms)::bigint AS ms, COUNT(r.tokens)::int AS tokens_n, SUM(r.tokens)::bigint AS tokens,"
             + " MAX(r.created_at) AS last_run"
             + " FROM bench_runs r JOIN bench_benchmarks b ON b.id = r.benchmark_id"
             + " WHERE r.model = $1 AND r.provenance = 'verified' AND b.visibility = 'public'", [name]);
         const round = (v, p) => (v == null ? null : Math.round(num(v) * p) / p);
+        const complete = (count, total) => (totals && num(count) === num(totals.runs) ? total : null);
+        const scoredTasks = tasks.filter((task) => task.score != null);
         return {
             ...summary,
             last_run: totals && totals.last_run ? iso(totals.last_run) : null,
-            total_cost_usd: round(totals && totals.cost, 1e6),
-            total_ms: round(totals && totals.ms, 1),
-            total_tokens: round(totals && totals.tokens, 1),
-            best_task: tasks.length ? tasks[0] : null,
-            worst_task: tasks.length ? tasks[tasks.length - 1] : null,
+            total_cost_usd: round(complete(totals && totals.cost_n, totals && totals.cost), 1e6),
+            cost_n: num(totals && totals.cost_n),
+            total_ms: round(complete(totals && totals.ms_n, totals && totals.ms), 1),
+            ms_n: num(totals && totals.ms_n),
+            total_tokens: round(complete(totals && totals.tokens_n, totals && totals.tokens), 1),
+            tokens_n: num(totals && totals.tokens_n),
+            best_task: scoredTasks.length ? scoredTasks[0] : null,
+            worst_task: scoredTasks.length ? scoredTasks[scoredTasks.length - 1] : null,
             tasks,
             recent_runs: runs,
         };

@@ -126,6 +126,7 @@ function parse(bytes) {
             model: model || 'unknown',
             provider: provider || 'inspect',
             score: score == null ? null : score * 100,
+            score_n: score == null ? 0 : 1,
             cost_usd: costOf(doc),
             tasks,
         }],
