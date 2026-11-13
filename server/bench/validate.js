@@ -131,6 +131,9 @@ function validateRun(doc) {
  * The bench.run@1 document for a run Bench is about to store: exactly the published shape, nothing else. The extra
  * fields Bench keeps for itself (the benchmark id and version, the session) stay in the database, not in the
  * contract, so what a caller reads back is what the contract says.
+ *
+ * A measurement the source did not record stays null here. bench.run@2 still types cost, time and tokens as numbers;
+ * the shape check normalises those nulls (see checkContract) while the returned document keeps the honest value.
  */
 function contractRun(doc, createdAt) {
     const harness = (doc.harness && typeof doc.harness === 'object') ? doc.harness : {};
