@@ -270,9 +270,9 @@ function createRegistryApi(ctx) {
             hardware: b.hardware == null ? null : b.hardware,
             tasks: Array.isArray(b.tasks) ? b.tasks : [],
             score: b.score,
-            cost_usd: b.cost_usd == null ? 0 : Number(b.cost_usd),
-            ms: b.ms == null ? 0 : Number(b.ms),
-            tokens: b.tokens == null ? 0 : Number(b.tokens),
+            cost_usd: b.cost_usd == null ? null : Number(b.cost_usd),
+            ms: b.ms == null ? null : Number(b.ms),
+            tokens: b.tokens == null ? null : Number(b.tokens),
             provenance,
             session: b.session == null ? null : b.session,
         };
@@ -413,17 +413,22 @@ function createRegistryApi(ctx) {
             const matching = runs.filter((run) => run.hardware && JSON.stringify(run.hardware).toLowerCase().includes(hardwareQuery.toLowerCase()));
             const bestByBenchmark = new Map();
             for (const run of runs) {
+                if (run.score == null) continue;
                 const key = `${run.benchmark_id}@${run.benchmark_version}`;
-                bestByBenchmark.set(key, Math.max(bestByBenchmark.get(key) ?? -Infinity, Number(run.score) || 0));
+                bestByBenchmark.set(key, Math.max(bestByBenchmark.get(key) ?? -Infinity, Number(run.score)));
             }
             res.set('Cache-Control', 'public, max-age=60');
-            return res.json({ schema: 'bench.local-runs@1', hardware_query: hardwareQuery, source: 'public verified Bench runs', count: Math.min(limit, matching.length), runs: matching.slice(0, limit).map((run) => ({
-                id: run.id, benchmark: run.benchmark, model: run.model, hardware: run.hardware,
-                score: run.score, frontier_score: bestByBenchmark.get(`${run.benchmark_id}@${run.benchmark_version}`) ?? null,
-                gap_to_frontier: run.score == null ? null : (bestByBenchmark.get(`${run.benchmark_id}@${run.benchmark_version}`) - run.score),
-                cost_usd: run.cost_usd, ms: run.ms, tokens: run.tokens, aggregate_tokens_per_second: run.ms > 0 ? Number((run.tokens * 1000 / run.ms).toFixed(3)) : null,
-                created_at: run.created_at,
-            })) });
+            return res.json({ schema: 'bench.local-runs@1', hardware_query: hardwareQuery, source: 'public verified Bench runs', count: Math.min(limit, matching.length), runs: matching.slice(0, limit).map((run) => {
+                const frontier = bestByBenchmark.get(`${run.benchmark_id}@${run.benchmark_version}`);
+                return {
+                    id: run.id, benchmark: run.benchmark, model: run.model, hardware: run.hardware,
+                    score: run.score, frontier_score: frontier == null ? null : frontier,
+                    gap_to_frontier: run.score == null || frontier == null ? null : (frontier - run.score),
+                    cost_usd: run.cost_usd, ms: run.ms, tokens: run.tokens,
+                    aggregate_tokens_per_second: run.ms > 0 && run.tokens != null ? Number((run.tokens * 1000 / run.ms).toFixed(3)) : null,
+                    created_at: run.created_at,
+                };
+            }) });
         } catch (err) { return failed(res, err); }
     });
 

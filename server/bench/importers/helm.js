@@ -71,6 +71,7 @@ function parse(bytes) {
             model,
             provider: provider || 'helm',
             score,
+            score_n: 1,
             cost_usd: null,
             seed: seed == null ? null : String(seed),
             few_shot: num(adapter.max_train_instances),

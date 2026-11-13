@@ -29,8 +29,8 @@ const SOURCE = {
     repo: REPO,
     dataset: DATASET_URL,
     schema_version: SCHEMA_VERSION,
-    // The datastore's own dataset card declares MIT; a record may override it in additional_details.
-    default_licence: 'MIT',
+    // The datastore's own dataset card is read at import time. There is no guessed fallback: a card that cannot be
+    // read leaves the licence unknown, and a record may still state its own licence in additional_details.
     licence_url: DATASET_URL + '/blob/main/README.md',
 };
 
@@ -44,18 +44,22 @@ const iso = (v) => (v == null ? null : (v instanceof Date ? v.toISOString() : St
 const details = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
 
 /**
- * The join rule of Report's server/data/ai-join.js: Bench names a model as its maker's API does
- * ("openai/gpt-5-nano-2025-08-07"), the catalogue names it by maker and family ("openai/gpt-5-nano"). They are the
- * same model once the maker prefix and a date or channel suffix are dropped.
+ * The join rule: a maker prefix is dropped, but the version is not. "openai/gpt-5.1-2026-08" and
+ * "openai/gpt-5.1-2026-09" are two models, not one family row. The family is a separate field.
  */
 function bareModel(v) {
-    return String(v || '').toLowerCase()
-        .replace(/^[^/]+\//, '')
-        .replace(/[-_@:](\d{4}-?\d{2}-?\d{2}|latest|free)$/, '');
+    return String(v || '').toLowerCase().replace(/^[^/]+\//, '').trim();
+}
+
+/** The family of a model id: the id without a date, channel or "latest" suffix. Never the stored identity. */
+function modelFamilyOf(v) {
+    return bareModel(v).replace(/[-_@:](\d{4}-?\d{2}(?:-?\d{2})?|latest|free)$/, '');
 }
 
 /** A licence that forbids redistribution is not imported. An empty or "unknown" one is not a licence either. */
 const NON_REDISTRIBUTABLE = /all rights reserved|proprietary|no (re)?distribution|not for (re)?distribution|research only|evaluation only|internal only|confidential|closed|^unknown$|^none$|^n\/?a$/i;
+const UNKNOWN_LICENCE = /^(unknown|none|n\/?a|unlicensed|not stated|unspecified)$/i;
+const licenceIsUnknown = (value) => value == null || !String(value).trim() || UNKNOWN_LICENCE.test(String(value).trim());
 function allowsRedistribution(licence) {
     const text = String(licence == null ? '' : licence).trim();
     if (!text) return false;
@@ -147,9 +151,11 @@ function sourceUrlOf(doc, result, path) {
 
 /**
  * Read one EEE record into the rows it would store. It throws when the document is not an EEE record; a result
- * without a score is dropped (invalid), and a result whose licence forbids redistribution is dropped (licence).
+ * without a score is dropped (invalid), and a result whose stated licence forbids redistribution is dropped
+ * (licence). An unread or unknown licence is kept with a null licence and `republishable: false`, so the record can
+ * be read and shown as unknown but is never republished until the licence is known.
  */
-function normalizeRecord(doc, { fallbackLicence = SOURCE.default_licence, fallbackLicenceUrl = SOURCE.licence_url, path = '' } = {}) {
+function normalizeRecord(doc, { fallbackLicence = null, fallbackLicenceUrl = SOURCE.licence_url, fallbackLicenceReason = '', path = '' } = {}) {
     if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
         throw new ImportError(422, 'bench.eee_not_object', 'That file is not an EEE record.');
     }
@@ -165,10 +171,24 @@ function normalizeRecord(doc, { fallbackLicence = SOURCE.default_licence, fallba
     const modelInfo = details(doc.model_info);
     const modelRaw = firstText(modelInfo.id, modelInfo.name);
     const model = bareModel(modelRaw) || modelRaw || 'unknown';
+    const modelFamily = modelFamilyOf(modelRaw) || model;
     const developer = firstText(modelInfo.developer, modelRaw.includes('/') ? modelRaw.split('/')[0] : '');
     const stated = recordLicenceOf(doc);
-    const licence = stated ? stated.licence : fallbackLicence;
-    const licenceSource = stated ? 'record' : 'datastore';
+    let licence = stated ? stated.licence : fallbackLicence;
+    let licenceSource = stated ? 'record' : (fallbackLicence == null ? 'unknown' : 'datastore');
+    let licenceReason = stated ? '' : String(fallbackLicenceReason || '');
+    let licenceRead = Boolean(stated) || !licenceIsUnknown(fallbackLicence);
+    if (licenceIsUnknown(licence)) {
+        licence = null;
+        licenceSource = 'unknown';
+        licenceRead = false;
+        if (!licenceReason) {
+            licenceReason = stated
+                ? 'the record states its licence as unknown'
+                : 'the source licence could not be read';
+        }
+    }
+    const republishable = allowsRedistribution(licence);
     const eeeId = firstText(doc.evaluation_id, modelRaw) || 'unknown';
 
     const record = {
@@ -179,7 +199,11 @@ function normalizeRecord(doc, { fallbackLicence = SOURCE.default_licence, fallba
         evaluator_relationship: relationship,
         licence,
         licence_source: licenceSource,
+        licence_reason: licenceReason,
+        licence_read: licenceRead,
+        republishable,
         model,
+        model_family: modelFamily,
         model_raw: modelRaw,
         developer,
         harness_name: firstText(library.name, meta.source_name, 'unknown'),
@@ -211,7 +235,9 @@ function normalizeRecord(doc, { fallbackLicence = SOURCE.default_licence, fallba
         const metricId = firstText(metric.metric_id, metric.metric_name, 'score');
         const metricName = firstText(metric.metric_name, metric.metric_id, 'score');
         const task = firstText(result.evaluation_name, result.evaluation_result_id) || 'unknown';
-        if (!allowsRedistribution(licence)) {
+        // A stated licence that forbids redistribution still stops the record at the door. An unknown licence does
+        // not: the row is kept, marked not republishable, so it can be shown as unknown.
+        if (licence != null && !republishable) {
             results.push({ dropped: 'licence', reason: 'licence does not allow redistribution: ' + licence });
             continue;
         }
@@ -230,32 +256,41 @@ function normalizeRecord(doc, { fallbackLicence = SOURCE.default_licence, fallba
             evaluation_at: num(result.evaluation_timestamp != null ? result.evaluation_timestamp : doc.evaluation_timestamp),
             source_url: sourceUrlOf(doc, result, path),
             licence,
+            republishable,
         });
     }
     return { record, results };
 }
 
-/** The datastore's own licence, read from its dataset card. A card that cannot be read falls back to MIT. */
+/**
+ * The datastore's own licence, read from its dataset card. A card that cannot be read is unknown: the result has a
+ * null licence, `read: false` and the reason, never a guessed MIT.
+ */
 async function datastoreLicence(fetchImpl = globalThis.fetch) {
     const url = SOURCE.licence_url;
     try {
         const res = await fetchImpl(url);
-        if (res && res.ok) {
-            const text = await res.text();
-            const line = String(text).split('\n').map((l) => l.trim()).find((l) => /^license:\s*/i.test(l));
-            if (line) {
-                const licence = line.replace(/^license:\s*/i, '').replace(/^["']|["']$/g, '').trim();
-                if (licence) return { licence, url, read: true };
-            }
+        if (!res || !res.ok) {
+            const status = res && res.status ? ' (' + res.status + ')' : '';
+            return { licence: null, url, read: false, reason: 'the dataset card could not be read' + status };
         }
+        const text = await res.text();
+        const line = String(text).split('\n').map((l) => l.trim()).find((l) => /^license:\s*/i.test(l));
+        if (line) {
+            const licence = line.replace(/^license:\s*/i, '').replace(/^["']|["']$/g, '').trim();
+            if (licence && !licenceIsUnknown(licence)) return { licence, url, read: true, reason: '' };
+        }
+        return { licence: null, url, read: false, reason: 'the dataset card states no licence' };
     } catch (err) {
-        // fall through to the known card value
+        return { licence: null, url, read: false, reason: 'the dataset card could not be read' };
     }
-    return { licence: SOURCE.default_licence, url, read: false };
 }
 
 function wireExternal(row) {
     if (!row) return null;
+    // A licence that was not actually read is not a licence, even when an old row carries a guessed value.
+    const licence = row.licence_read ? (row.licence || null) : null;
+    const licenceReason = row.licence_reason || (row.licence_read ? '' : 'the source licence was not read');
     return {
         id: row.id,
         external: true,
@@ -267,10 +302,15 @@ function wireExternal(row) {
             url: row.source_url,
             relationship: row.evaluator_relationship,
         },
-        licence: row.licence,
+        licence,
+        licence_label: licence || 'Licence unknown',
         licence_url: row.licence_url,
         licence_source: row.licence_source,
+        licence_reason: licenceReason,
+        licence_read: Boolean(row.licence_read),
+        republishable: Boolean(row.republishable) && licence != null,
         model: row.model,
+        model_family: row.model_family,
         model_raw: row.model_raw,
         developer: row.developer,
         harness: { name: row.harness_name, version: row.harness_version },
@@ -299,8 +339,8 @@ function createEee({ s, fetchImpl = globalThis.fetch, log = console, config = nu
         return res.json();
     }
 
-    async function storeRecord(doc, { path = '', readAt = s.iso(), fallbackLicence = SOURCE.default_licence, fallbackLicenceUrl = SOURCE.licence_url } = {}) {
-        const parsed = normalizeRecord(doc, { fallbackLicence, fallbackLicenceUrl, path });
+    async function storeRecord(doc, { path = '', readAt = s.iso(), fallbackLicence = null, fallbackLicenceUrl = SOURCE.licence_url, fallbackLicenceReason = '' } = {}) {
+        const parsed = normalizeRecord(doc, { fallbackLicence, fallbackLicenceUrl, fallbackLicenceReason, path });
         const counts = { read: parsed.results.length, kept: 0, droppedLicence: 0, droppedInvalid: 0, reasons: {} };
         const note = (reason) => { counts.reasons[reason] = (counts.reasons[reason] || 0) + 1; };
         for (const result of parsed.results) {
@@ -309,20 +349,25 @@ function createEee({ s, fetchImpl = globalThis.fetch, log = console, config = nu
             await db.exec(
                 `INSERT INTO bench_eee_records
                     (id, eee_id, source_name, source_type, source_url, source_org, evaluator_relationship, licence,
-                     licence_url, licence_source, model, model_raw, developer, harness_name, harness_version, task,
-                     task_version, few_shot, seed, metric_id, metric_name, lower_is_better, score, score_min,
-                     score_max, evaluation_at, retrieved_at, provenance, created_at)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19,
-                     $20, $21, $22, $23, $24, $25, $26::timestamptz, $27::timestamptz, $28::jsonb, $29::timestamptz)
+                     licence_url, licence_source, licence_reason, licence_read, republishable, model, model_family,
+                     model_raw, developer, harness_name, harness_version, task, task_version, few_shot, seed, metric_id,
+                     metric_name, lower_is_better, score, score_min, score_max, evaluation_at, retrieved_at, provenance,
+                     created_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+                     $21, $22, $23, $24, $25, $26, $27, $28, $29, $30::timestamptz, $31::timestamptz, $32::jsonb, $33::timestamptz)
                  ON CONFLICT (eee_id, task, metric_id, metric_name) DO UPDATE SET
                      score = EXCLUDED.score, score_min = EXCLUDED.score_min, score_max = EXCLUDED.score_max,
                      licence = EXCLUDED.licence, licence_url = EXCLUDED.licence_url, licence_source = EXCLUDED.licence_source,
+                     licence_reason = EXCLUDED.licence_reason, licence_read = EXCLUDED.licence_read,
+                     republishable = EXCLUDED.republishable, model = EXCLUDED.model, model_family = EXCLUDED.model_family,
                      source_url = EXCLUDED.source_url, harness_version = EXCLUDED.harness_version,
                      task_version = EXCLUDED.task_version, few_shot = EXCLUDED.few_shot, seed = EXCLUDED.seed,
                      retrieved_at = EXCLUDED.retrieved_at, provenance = EXCLUDED.provenance`,
                 [s.newId('ber'), parsed.record.eee_id, parsed.record.source_name, parsed.record.source_type,
                     result.source_url, parsed.record.source_org, parsed.record.evaluator_relationship,
-                    parsed.record.licence, parsed.record.licence_source === 'record' ? result.source_url : fallbackLicenceUrl, parsed.record.licence_source, parsed.record.model,
+                    parsed.record.licence, parsed.record.licence_source === 'record' ? result.source_url : fallbackLicenceUrl,
+                    parsed.record.licence_source, parsed.record.licence_reason, parsed.record.licence_read,
+                    parsed.record.republishable, parsed.record.model, parsed.record.model_family,
                     parsed.record.model_raw, parsed.record.developer, parsed.record.harness_name,
                     parsed.record.harness_version, result.task, result.task_version, result.few_shot, result.seed,
                     result.metric_id, result.metric_name, result.lower_is_better, result.score, result.score_min,
@@ -337,13 +382,15 @@ function createEee({ s, fetchImpl = globalThis.fetch, log = console, config = nu
     }
 
     /** The external records, newest first, with `external: true` and their provenance. Never a Bench rating. */
-    async function listRecords({ model = null, task = null, sourceType = null, limit = 100, offset = 0 } = {}) {
+    async function listRecords({ model = null, family = null, task = null, sourceType = null, republishableOnly = false, limit = 100, offset = 0 } = {}) {
         const where = [];
         const params = [];
         const add = (clause, value) => { params.push(value); where.push(clause.replace('?', `$${params.length}`)); };
         if (model) add('model = ?', String(model));
+        if (family) add('model_family = ?', String(family));
         if (task) add('task = ?', String(task));
         if (sourceType) add('source_type = ?', String(sourceType));
+        if (republishableOnly) where.push('republishable = true');
         params.push(Math.max(1, Math.min(1000, Number(limit) || 100)));
         const limitAt = params.length;
         params.push(Math.max(0, Number(offset) || 0));
@@ -355,13 +402,15 @@ function createEee({ s, fetchImpl = globalThis.fetch, log = console, config = nu
         return rows.map(wireExternal);
     }
 
-    async function countRecords({ model = null, task = null, sourceType = null } = {}) {
+    async function countRecords({ model = null, family = null, task = null, sourceType = null, republishableOnly = false } = {}) {
         const where = [];
         const params = [];
         const add = (clause, value) => { params.push(value); where.push(clause.replace('?', `$${params.length}`)); };
         if (model) add('model = ?', String(model));
+        if (family) add('model_family = ?', String(family));
         if (task) add('task = ?', String(task));
         if (sourceType) add('source_type = ?', String(sourceType));
+        if (republishableOnly) where.push('republishable = true');
         const row = await db.maybe(`SELECT COUNT(*)::int AS n FROM bench_eee_records ${where.length ? 'WHERE ' + where.join(' AND ') : ''}`, params);
         return num(row && row.n) || 0;
     }
@@ -372,6 +421,7 @@ function createEee({ s, fetchImpl = globalThis.fetch, log = console, config = nu
     }
 
     function wireSync(row) {
+        const defaultLicence = row.licence_read ? (row.default_licence || null) : null;
         return {
             id: row.id,
             status: row.status,
@@ -383,7 +433,10 @@ function createEee({ s, fetchImpl = globalThis.fetch, log = console, config = nu
             dropped_licence: num(row.dropped_licence) || 0,
             dropped_invalid: num(row.dropped_invalid) || 0,
             dropped_reason: json(row.dropped_reason, {}),
-            default_licence: row.default_licence || '',
+            default_licence: defaultLicence,
+            default_licence_label: defaultLicence || 'Licence unknown',
+            licence_read: Boolean(row.licence_read),
+            licence_reason: row.licence_reason || '',
             licence_url: row.licence_url || '',
             error: row.error || '',
             started_at: iso(row.started_at),
@@ -427,9 +480,9 @@ function createEee({ s, fetchImpl = globalThis.fetch, log = console, config = nu
         if (!row) {
             const id = s.newId('bes');
             row = await db.maybe(
-                `INSERT INTO bench_eee_syncs (id, status, cursor, default_licence, licence_url, started_at, updated_at)
-                 VALUES ($1, 'running', '{}'::jsonb, $2, $3, $4::timestamptz, $4::timestamptz) RETURNING *`,
-                [id, licence.licence, licence.url, s.iso()],
+                `INSERT INTO bench_eee_syncs (id, status, cursor, default_licence, licence_url, licence_reason, licence_read, started_at, updated_at)
+                 VALUES ($1, 'running', '{}'::jsonb, $2, $3, $4, $5, $6::timestamptz, $6::timestamptz) RETURNING *`,
+                [id, licence.licence, licence.url, licence.reason, licence.read, s.iso()],
             );
         }
         const cursor = json(row.cursor, {});
@@ -463,7 +516,7 @@ function createEee({ s, fetchImpl = globalThis.fetch, log = console, config = nu
                         filesSeen += 1;
                         continue;
                     }
-                    const out = await storeRecord(doc, { path, readAt: s.iso(), fallbackLicence: licence.licence, fallbackLicenceUrl: licence.url });
+                    const out = await storeRecord(doc, { path, readAt: s.iso(), fallbackLicence: licence.licence, fallbackLicenceUrl: licence.url, fallbackLicenceReason: licence.reason });
                     recordsRead += out.read;
                     recordsKept += out.kept;
                     droppedLicence += out.droppedLicence;
@@ -485,11 +538,13 @@ function createEee({ s, fetchImpl = globalThis.fetch, log = console, config = nu
         const updated = await db.maybe(
             `UPDATE bench_eee_syncs SET status = $1, cursor = $2::jsonb, collections = $3, files_seen = $4,
                  records_read = $5, records_kept = $6, dropped_licence = $7, dropped_invalid = $8,
-                 dropped_reason = $9::jsonb, default_licence = $10, licence_url = $11, error = $12,
-                 updated_at = $13::timestamptz, finished_at = CASE WHEN $1 = 'running' THEN NULL ELSE $13::timestamptz END
-             WHERE id = $14 RETURNING *`,
+                 dropped_reason = $9::jsonb, default_licence = $10, licence_url = $11, licence_reason = $12,
+                 licence_read = $13, error = $14, updated_at = $15::timestamptz,
+                 finished_at = CASE WHEN $1 = 'running' THEN NULL ELSE $15::timestamptz END
+             WHERE id = $16 RETURNING *`,
             [status, nextCursor, names ? names.length : 0, filesSeen, recordsRead, recordsKept, droppedLicence,
-                droppedInvalid, JSON.stringify(reasons), licence.licence, licence.url, error, s.iso(), row.id],
+                droppedInvalid, JSON.stringify(reasons), licence.licence, licence.url, licence.reason, licence.read,
+                error, s.iso(), row.id],
         );
         return wireSync(updated);
     }
@@ -536,7 +591,7 @@ function createEee({ s, fetchImpl = globalThis.fetch, log = console, config = nu
                 max_score: 100,
             },
             score_details: {
-                score: num(run.score) == null ? 0 : num(run.score),
+                score: num(run.score),
                 ...(sampleCount ? { uncertainty: { num_samples: sampleCount } } : {}),
             },
             generation_config: {
@@ -572,7 +627,8 @@ function createEee({ s, fetchImpl = globalThis.fetch, log = console, config = nu
             },
             model_info: {
                 name: String(run.model || 'unknown'),
-                id: String((route.model || run.model || 'unknown')),
+                // The run's own model id is the versioned one; an alias in route.model must not replace it.
+                id: String(run.model || route.model || 'unknown'),
                 ...(developer ? { developer } : {}),
                 ...(run.provider ? { inference_platform: String(run.provider) } : {}),
                 additional_details: {
@@ -593,7 +649,7 @@ function createEee({ s, fetchImpl = globalThis.fetch, log = console, config = nu
         const runs = await db.many(
             `SELECT r.*, b.title AS benchmark_title, b.kind AS benchmark_kind
              FROM bench_runs r JOIN bench_benchmarks b ON b.id = r.benchmark_id
-             WHERE b.visibility = 'public' AND r.provenance = 'verified'
+             WHERE b.visibility = 'public' AND r.provenance = 'verified' AND r.score IS NOT NULL
              ORDER BY r.created_at, r.id LIMIT $1 OFFSET $2`,
             [take, skip],
         );
@@ -612,7 +668,7 @@ function createEee({ s, fetchImpl = globalThis.fetch, log = console, config = nu
 
     async function exportCount() {
         const row = await db.maybe(
-            "SELECT COUNT(*)::int AS n FROM bench_runs r JOIN bench_benchmarks b ON b.id = r.benchmark_id WHERE b.visibility = 'public' AND r.provenance = 'verified'",
+            "SELECT COUNT(*)::int AS n FROM bench_runs r JOIN bench_benchmarks b ON b.id = r.benchmark_id WHERE b.visibility = 'public' AND r.provenance = 'verified' AND r.score IS NOT NULL",
         );
         return num(row && row.n) || 0;
     }
@@ -659,6 +715,6 @@ function createEee({ s, fetchImpl = globalThis.fetch, log = console, config = nu
 }
 
 module.exports = {
-    createEee, normalizeRecord, allowsRedistribution, recordLicenceOf, bareModel,
+    createEee, normalizeRecord, allowsRedistribution, recordLicenceOf, bareModel, modelFamilyOf,
     datastoreLicence, wireExternal, SOURCE, DATASET, DATASET_URL, SCHEMA_VERSION,
 };

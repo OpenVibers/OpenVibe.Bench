@@ -54,6 +54,7 @@ async function t(name, fn) {
         ];
         assert.strictEqual(rating.costPerSolved(entries), 0.15);
         assert.strictEqual(rating.costPerSolved([{ cost_usd: 0.5, solved: false }]), null);
+        assert.strictEqual(rating.costPerSolved([{ cost_usd: null, solved: true }]), null, 'a missing cost is not free');
     });
 
     await t('bradleyTerry: deterministic, sorted, with games and bootstrap intervals', () => {

@@ -57,7 +57,8 @@ function pareto(rows, { x = 'x', y = 'y' } = {}) {
 
 /**
  * Expected cost per solved entry. `entries` are objects with a numeric `cost_usd` and a truthy `solved` flag
- * (or `outcome: 'pass'` / a positive `score`). Returns null when nothing is solved.
+ * (or `outcome: 'pass'` / a positive `score`). A solved entry with no measured cost makes the answer null: a
+ * partial total would understate the spend, and a missing cost is not a free one.
  */
 function costPerSolved(entries) {
     const list = Array.isArray(entries) ? entries : [];
@@ -66,7 +67,9 @@ function costPerSolved(entries) {
     for (const e of list) {
         const isSolved = Boolean(e && (e.solved || e.outcome === 'pass' || (Number(e.score) || 0) > 0));
         if (!isSolved) continue;
-        cost += Number(e.cost_usd) || 0;
+        const measured = e.cost_usd == null || e.cost_usd === '' ? null : Number(e.cost_usd);
+        if (!Number.isFinite(measured)) return null;
+        cost += measured;
         solved += 1;
     }
     return solved ? Math.round((cost / solved) * 1e10) / 1e10 : null;

@@ -18,6 +18,8 @@ const isStr = (v) => typeof v === 'string';
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
 const num = (v, d = 0) => (v == null || v === '' || Number.isNaN(Number(v)) ? d : Number(v));
+/** A measurement a harness did not record is null, never 0. */
+const numOrNull = (v) => (v == null || v === '' || Number.isNaN(Number(v)) ? null : Number(v));
 
 /** The contract's id patterns. */
 const BENCHMARK_ID = /^bmk_[0-9A-HJKMNP-TV-Z]{26}$/;
@@ -110,16 +112,16 @@ function validateRun(doc) {
             if (!isObj(t)) { e.add(`/tasks/${i}`, 'must be an object'); return; }
             if (!isStr(t.task_id) || !t.task_id.trim()) e.add(`/tasks/${i}/task_id`, 'is required');
             if (t.score != null && (!isNum(t.score) || t.score < 0 || t.score > 100)) e.add(`/tasks/${i}/score`, 'must be null or 0-100');
-            if (!isNum(t.cost_usd) || t.cost_usd < 0) e.add(`/tasks/${i}/cost_usd`, 'must be 0 or more');
-            if (!isNum(t.ms) || t.ms < 0) e.add(`/tasks/${i}/ms`, 'must be 0 or more');
-            if (!isNum(t.tokens) || t.tokens < 0) e.add(`/tasks/${i}/tokens`, 'must be 0 or more');
+            if (t.cost_usd != null && (!isNum(t.cost_usd) || t.cost_usd < 0)) e.add(`/tasks/${i}/cost_usd`, 'must be null, or 0 or more');
+            if (t.ms != null && (!isNum(t.ms) || t.ms < 0)) e.add(`/tasks/${i}/ms`, 'must be null, or 0 or more');
+            if (t.tokens != null && (!isNum(t.tokens) || t.tokens < 0)) e.add(`/tasks/${i}/tokens`, 'must be null, or 0 or more');
             if (!Array.isArray(t.artifacts)) e.add(`/tasks/${i}/artifacts`, 'must be an array');
         });
     }
     if (doc.score != null && (!isNum(doc.score) || doc.score < 0 || doc.score > 100)) e.add('/score', 'must be null or 0-100');
-    if (!isNum(doc.cost_usd) || doc.cost_usd < 0) e.add('/cost_usd', 'must be 0 or more');
-    if (!isNum(doc.ms) || doc.ms < 0) e.add('/ms', 'must be 0 or more');
-    if (!isNum(doc.tokens) || doc.tokens < 0) e.add('/tokens', 'must be 0 or more');
+    if (doc.cost_usd != null && (!isNum(doc.cost_usd) || doc.cost_usd < 0)) e.add('/cost_usd', 'must be null, or 0 or more');
+    if (doc.ms != null && (!isNum(doc.ms) || doc.ms < 0)) e.add('/ms', 'must be null, or 0 or more');
+    if (doc.tokens != null && (!isNum(doc.tokens) || doc.tokens < 0)) e.add('/tokens', 'must be null, or 0 or more');
     if (!PROVENANCES.includes(doc.provenance)) e.add('/provenance', 'must be verified or submitted');
     return { valid: e.valid, errors: e.list };
 }
@@ -138,9 +140,9 @@ function contractRun(doc, createdAt) {
         const out = {
             task_id: String(t.task_id || ''),
             score: t.score == null ? null : num(t.score),
-            cost_usd: num(t.cost_usd),
-            ms: Math.round(num(t.ms)),
-            tokens: Math.round(num(t.tokens)),
+            cost_usd: numOrNull(t.cost_usd),
+            ms: t.ms == null ? null : Math.round(num(t.ms)),
+            tokens: t.tokens == null ? null : Math.round(num(t.tokens)),
             artifacts: (Array.isArray(t.artifacts) ? t.artifacts : [])
                 .map((a) => ({ kind: String(a.kind || 'file'), url: String(a.url || '') }))
                 .filter((a) => a.url),
@@ -162,9 +164,9 @@ function contractRun(doc, createdAt) {
         executor: { kind: String(executor.kind || ''), id: String(executor.id || '') },
         tasks,
         score: doc.score == null ? null : num(doc.score),
-        cost_usd: num(doc.cost_usd),
-        ms: Math.round(num(doc.ms)),
-        tokens: Math.round(num(doc.tokens)),
+        cost_usd: numOrNull(doc.cost_usd),
+        ms: doc.ms == null ? null : Math.round(num(doc.ms)),
+        tokens: doc.tokens == null ? null : Math.round(num(doc.tokens)),
         provenance: String(doc.provenance || ''),
         created_at: createdAt || new Date().toISOString(),
     };
@@ -172,10 +174,32 @@ function contractRun(doc, createdAt) {
     return out;
 }
 
-/** The published contract has the last word: a document that does not match it is refused. */
-function checkContract(name, doc) {
+/**
+ * The published contract has the last word: a document that does not match it is refused.
+ *
+ * bench.run@2 still types cost, time and tokens as numbers, while Bench keeps an unmeasured one as null. With
+ * `allowMissingMeasurements`, the check runs on a copy whose null measurements are marked as 0 for the shape check
+ * only; the stored document keeps the null. A measured 0 is still 0.
+ */
+function checkContract(name, doc, { allowMissingMeasurements = false } = {}) {
+    let candidate = doc;
+    if (allowMissingMeasurements && name === 'bench.run@2' && doc && typeof doc === 'object') {
+        const at = (v) => (v == null ? 0 : v);
+        candidate = {
+            ...doc,
+            cost_usd: at(doc.cost_usd),
+            ms: at(doc.ms),
+            tokens: at(doc.tokens),
+            tasks: (Array.isArray(doc.tasks) ? doc.tasks : []).map((t) => ({
+                ...t,
+                cost_usd: at(t.cost_usd),
+                ms: at(t.ms),
+                tokens: at(t.tokens),
+            })),
+        };
+    }
     try {
-        assertValid(name, doc);
+        assertValid(name, candidate);
         return { valid: true, errors: [] };
     } catch (err) {
         return { valid: false, errors: [{ path: '/', message: (err && err.message) || `does not match ${name}` }] };

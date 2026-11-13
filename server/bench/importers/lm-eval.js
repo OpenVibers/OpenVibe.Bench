@@ -117,6 +117,7 @@ function parse(bytes) {
             model,
             provider,
             score: overall,
+            score_n: tasks.length,
             cost_usd: num(doc.cost_usd),
             tasks,
         }],

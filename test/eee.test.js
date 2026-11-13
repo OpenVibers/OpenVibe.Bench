@@ -39,11 +39,14 @@ function definition(over = {}) {
 
 (async () => {
     // ── the join rule and the licence gate ───────────────────────────────────────────────────────────────────
-    await check('a model name drops the maker prefix and a date or channel suffix, as Report joins it', () => {
-        assert.strictEqual(eeeLib.bareModel('openai/gpt-5-nano-2025-08-07'), 'gpt-5-nano');
-        assert.strictEqual(eeeLib.bareModel('anthropic/claude-3-7-sonnet-20250219'), 'claude-3-7-sonnet');
+    await check('a model name drops the maker prefix but keeps its version; the family is separate', () => {
+        assert.strictEqual(eeeLib.bareModel('openai/gpt-5-nano-2025-08-07'), 'gpt-5-nano-2025-08-07');
+        assert.strictEqual(eeeLib.modelFamilyOf('openai/gpt-5-nano-2025-08-07'), 'gpt-5-nano');
+        assert.strictEqual(eeeLib.bareModel('anthropic/claude-3-7-sonnet-20250219'), 'claude-3-7-sonnet-20250219');
+        assert.strictEqual(eeeLib.modelFamilyOf('anthropic/claude-3-7-sonnet-20250219'), 'claude-3-7-sonnet');
         assert.strictEqual(eeeLib.bareModel('meta-llama/Llama-3.1-8B-Instruct'), 'llama-3.1-8b-instruct');
-        assert.strictEqual(eeeLib.bareModel('gpt-4o-latest'), 'gpt-4o');
+        assert.strictEqual(eeeLib.bareModel('gpt-4o-latest'), 'gpt-4o-latest');
+        assert.strictEqual(eeeLib.modelFamilyOf('gpt-4o-latest'), 'gpt-4o');
         assert.strictEqual(eeeLib.bareModel('openai/gpt-5-nano'), 'gpt-5-nano');
     });
 
@@ -61,10 +64,12 @@ function definition(over = {}) {
 
     await check('one EEE record is read into its results, with provenance and the join name', () => {
         const doc = record();
-        const parsed = eeeLib.normalizeRecord(doc, { path: 'data/IFEval/x.json' });
+        // A licence the datastore card actually stated applies to a record that states none of its own.
+        const parsed = eeeLib.normalizeRecord(doc, { path: 'data/IFEval/x.json', fallbackLicence: 'MIT' });
         assert.strictEqual(parsed.record.eee_id, doc.evaluation_id);
         assert.strictEqual(parsed.record.source_type, 'documentation');
         assert.strictEqual(parsed.record.model, 'llama-pro-8b-instruct');
+        assert.strictEqual(parsed.record.model_family, 'llama-pro-8b-instruct');
         assert.strictEqual(parsed.record.model_raw, 'TencentARC/LLaMA-Pro-8B-Instruct');
         assert.strictEqual(parsed.record.developer, 'TencentARC');
         assert.strictEqual(parsed.results.length, 6);
@@ -73,7 +78,9 @@ function definition(over = {}) {
         assert.strictEqual(ifeval.score, 0.4486);
         assert.strictEqual(ifeval.metric_name, 'score');
         assert.match(ifeval.source_url, /^https:\/\//);
-        assert.strictEqual(parsed.record.licence, 'MIT', 'the datastore card licence is the fallback');
+        assert.strictEqual(parsed.record.licence, 'MIT', 'the read datastore card licence is the fallback');
+        assert.strictEqual(parsed.record.licence_read, true);
+        assert.strictEqual(parsed.record.republishable, true);
     });
 
     await check('a record that states a non-redistributable licence is dropped, and the reason is recorded', () => {
@@ -150,7 +157,9 @@ function definition(over = {}) {
         const rows = await eee.listRecords({ task: 'IFEval' });
         assert.strictEqual(rows.length, 1);
         assert.strictEqual(rows[0].external, true);
-        assert.strictEqual(rows[0].licence, 'MIT');
+        assert.strictEqual(rows[0].licence, null, 'no card was read, so no licence is claimed');
+        assert.strictEqual(rows[0].licence_label, 'Licence unknown');
+        assert.strictEqual(rows[0].republishable, false);
         assert.strictEqual(rows[0].source_type, 'documentation');
         assert.strictEqual(rows[0].model, 'llama-pro-8b-instruct');
         assert.ok(rows[0].provenance.source_metadata, 'the record provenance travels with it');
@@ -189,7 +198,24 @@ function definition(over = {}) {
         // It is importable as EEE too: the round trip is the schema check a test can make without a validator.
         const back = t.ctx.eee.normalizeRecord(mine);
         assert.strictEqual(back.results.length, 1);
-        assert.strictEqual(back.record.model, 'gpt-5-nano');
+        assert.strictEqual(back.record.model, 'gpt-5-nano-2025-08-07', 'the export keeps the version');
+        assert.strictEqual(back.record.model_family, 'gpt-5-nano');
+    });
+
+    await check('a public run with no score is not exported as a zero', async () => {
+        const pending = await t.ctx.registry.publishRun({
+            benchmark: `${made.benchmark.id}@${frozen.version.version}`,
+            model: 'openai/gpt-5-nano-2026-09', provider: 'openai',
+            route: {},
+            harness: { name: 'lm-evaluation-harness', version: '0.4.2' },
+            settings: {},
+            tasks: [{ task_id: 't1', score: null, cost_usd: null, ms: null, tokens: null, artifacts: [] }],
+            score: null, cost_usd: null, ms: null, tokens: null,
+        }, { provenance: 'verified', subject: 'service:codes' });
+        assert.ok(pending.ok, pending.message);
+        const records = await t.ctx.eee.exportRecords({ limit: 100 });
+        assert.ok(!records.some((r) => r.evaluation_id === `openvibe-bench/${pending.run.id}`), 'no false 0');
+        assert.ok(records.every((r) => r.evaluation_results[0].score_details.score != null), 'every exported score was measured');
     });
 
     await check('the EEE dataset is served as paged JSONL, and the samples as their own JSONL', async () => {

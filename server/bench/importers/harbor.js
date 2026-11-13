@@ -46,6 +46,8 @@ function parse(bytes) {
                 model: model || 'unknown',
                 provider: provider || 'harbor',
                 score: null,
+                scoreSum: 0,
+                scoreN: 0,
                 cost_usd: 0,
                 hasCost: false,
                 tasks: [],
@@ -59,12 +61,14 @@ function parse(bytes) {
         row.tasks.push({ task_id: taskId, score: reward == null ? null : reward * 100 });
         const cost = num(trial && (trial.cost_usd != null ? trial.cost_usd : trial.cost));
         if (cost != null) { row.cost_usd += cost; row.hasCost = true; }
-        if (reward != null) row.score = row.score == null ? reward * 100 : (row.score + reward * 100) / 2;
+        if (reward != null) { row.scoreSum += reward * 100; row.scoreN += 1; }
     }
     const models = [...byModel.values()].map((row) => ({
         model: row.model,
         provider: row.provider,
-        score: row.score,
+        // The mean of the rewards that were measured, over their count; a missing reward is not a zero.
+        score: row.scoreN ? row.scoreSum / row.scoreN : null,
+        score_n: row.scoreN,
         cost_usd: row.hasCost ? row.cost_usd : null,
         tasks: row.tasks,
     }));

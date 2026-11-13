@@ -23,6 +23,8 @@ const MAX_TASKS_PER_MODEL = 10000;
 
 const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 const num = (v, d = 0) => (v == null || v === '' || Number.isNaN(Number(v)) ? d : Number(v));
+/** A measurement a harness did not record is null, never 0. */
+const numOrNull = (v) => (v == null || v === '' || Number.isNaN(Number(v)) ? null : Number(v));
 
 /** The name of the file, without any path: a name is never a path here. */
 function safeFilename(name) {
@@ -83,24 +85,30 @@ function createImports({ s, registry, log = console }) {
             harness: parsed.harness,
             date: parsed.date,
             suite: parsed.suite || null,
-            models: models.map((m) => ({
-                model: m.model,
-                provider: m.provider,
-                score: m.score == null ? null : num(m.score),
-                cost_usd: m.cost_usd == null ? null : num(m.cost_usd),
-                tokens: m.tokens == null ? null : num(m.tokens),
-                // B7: the harness's own settings travel with the import: the run's seed and few-shot, and each
-                // task's version and metric, so a result can be compared at a glance with the tool that made it.
-                seed: m.seed == null ? null : String(m.seed),
-                few_shot: m.few_shot == null ? null : num(m.few_shot),
-                tasks: (m.tasks || []).map((t) => ({
+            models: models.map((m) => {
+                const tasks = (m.tasks || []).map((t) => ({
                     task_id: String(t.task_id),
                     score: t.score == null ? null : num(t.score),
                     task_version: t.task_version == null ? null : String(t.task_version),
                     few_shot: t.few_shot == null ? null : num(t.few_shot),
                     metric: t.metric == null ? null : String(t.metric),
-                })),
-            })),
+                }));
+                return {
+                    model: m.model,
+                    provider: m.provider,
+                    score: m.score == null ? null : num(m.score),
+                    // The count the average was taken over. A missing score is left out and never counted as 0.
+                    task_count: tasks.length,
+                    scored_tasks: tasks.filter((t) => t.score != null).length,
+                    cost_usd: m.cost_usd == null ? null : num(m.cost_usd),
+                    tokens: m.tokens == null ? null : num(m.tokens),
+                    // B7: the harness's own settings travel with the import: the run's seed and few-shot, and each
+                    // task's version and metric, so a result can be compared at a glance with the tool that made it.
+                    seed: m.seed == null ? null : String(m.seed),
+                    few_shot: m.few_shot == null ? null : num(m.few_shot),
+                    tasks,
+                };
+            }),
         };
         await db.exec(
             `INSERT INTO bench_imports (id, owner, tool, tool_version, filename, sha256, size, status, summary, created_by, created_at)
@@ -210,7 +218,14 @@ function createImports({ s, registry, log = console }) {
         for (const model of summary.models || []) {
             const tasks = (model.tasks || [])
                 .filter((t) => known.has(t.task_id))
-                .map((t) => ({ task_id: t.task_id, score: t.score == null ? null : num(t.score), cost_usd: 0, ms: 0, tokens: 0, artifacts: [] }));
+                .map((t) => ({
+                    task_id: t.task_id,
+                    score: t.score == null ? null : num(t.score),
+                    cost_usd: numOrNull(t.cost_usd),
+                    ms: numOrNull(t.ms),
+                    tokens: numOrNull(t.tokens),
+                    artifacts: [],
+                }));
             if (!tasks.length) continue;
             // B7: keep what the harness recorded beside the scores: the task versions, the few-shot and the seed.
             const taskVersions = {};
@@ -231,9 +246,9 @@ function createImports({ s, registry, log = console }) {
                 settings,
                 tasks,
                 score: model.score == null ? null : num(model.score),
-                cost_usd: num(model.cost_usd),
-                ms: 0,
-                tokens: num(model.tokens),
+                cost_usd: numOrNull(model.cost_usd),
+                ms: numOrNull(model.ms),
+                tokens: numOrNull(model.tokens),
                 source: {
                     kind: 'import',
                     tool: summary.tool,

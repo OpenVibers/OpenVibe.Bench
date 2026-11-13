@@ -1,0 +1,33 @@
+{
+  "version": "0.100.0",
+  "timestamp": "2026-11-13T00:00:00Z",
+  "results": [
+    {
+      "id": "scored-case",
+      "provider": "openai:gpt-5.1-2026-08",
+      "gradingResult": { "pass": true, "score": 1 },
+      "response": { "output": "42", "tokenUsage": { "total": 1000 }, "cost": 0.02 }
+    },
+    {
+      "id": "missing-score-1",
+      "provider": "openai:gpt-5.1-2026-08",
+      "gradingResult": {},
+      "response": { "output": "" }
+    },
+    {
+      "id": "missing-score-2",
+      "provider": "openai:gpt-5.1-2026-08",
+      "gradingResult": {}
+    },
+    {
+      "id": "unmeasured-1",
+      "provider": "anthropic:claude-opus-5-5",
+      "gradingResult": {}
+    },
+    {
+      "id": "unmeasured-2",
+      "provider": "anthropic:claude-opus-5-5",
+      "gradingResult": {}
+    }
+  ]
+}

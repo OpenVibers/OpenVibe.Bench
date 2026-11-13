@@ -55,6 +55,20 @@ const isStr = (v) => typeof v === 'string';
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
 const num = (v, d = 0) => (v == null || v === '' || Number.isNaN(Number(v)) ? d : Number(v));
+/** A measurement a run did not record is null, never 0. */
+const numOrNull = (v) => (v == null || v === '' || Number.isNaN(Number(v)) ? null : Number(v));
+/** The sum of measurements, or null when any part is unmeasured. */
+function sumMeasured(values) {
+    const list = Array.isArray(values) ? values : [];
+    if (!list.length) return null;
+    let total = 0;
+    for (const value of list) {
+        const n = numOrNull(value);
+        if (n == null) return null;
+        total += n;
+    }
+    return total;
+}
 
 class Problems {
     constructor() { this.list = []; }
@@ -191,14 +205,20 @@ function scoreTicket(trials) {
     const list = Array.isArray(trials) ? trials.filter((t) => t && t.score != null) : [];
     const n = list.length;
     const passes = list.filter((t) => num(t.score) > 0).length;
+    const cost = sumMeasured(list.map((t) => t.cost_usd));
+    const ms = sumMeasured(list.map((t) => t.ms));
+    const tokens = sumMeasured(list.map((t) => t.tokens));
     return {
         trials: n,
         passes,
         pass_at_1: n ? passes / n : null,
         pass_at_k: n ? passes === n : false,
-        cost_usd: Math.round(list.reduce((s, t) => s + num(t.cost_usd), 0) * 1e6) / 1e6,
-        ms: list.reduce((s, t) => s + num(t.ms), 0),
-        tokens: list.reduce((s, t) => s + num(t.tokens), 0),
+        cost_usd: cost == null ? null : Math.round(cost * 1e6) / 1e6,
+        cost_n: list.filter((t) => numOrNull(t.cost_usd) != null).length,
+        ms: ms == null ? null : Math.round(ms),
+        ms_n: list.filter((t) => numOrNull(t.ms) != null).length,
+        tokens: tokens == null ? null : Math.round(tokens),
+        tokens_n: list.filter((t) => numOrNull(t.tokens) != null).length,
     };
 }
 
@@ -222,18 +242,21 @@ function scoreRuns(runs, tasksByRun, { effort = null } = {}) {
         const runEffort = run.settings && run.settings.effort != null ? String(run.settings.effort) : null;
         if (effort != null && String(effort) !== (runEffort == null ? 'default' : runEffort)) continue;
         const key = `${String(run.model)}\u0000${runEffort == null ? 'default' : runEffort}`;
-        if (!groups.has(key)) groups.set(key, { model: String(run.model), effort: runEffort, trialsByTicket: new Map(), runs: 0, cost_usd: 0, ms: 0, tokens: 0, session: run.session || null });
+        if (!groups.has(key)) groups.set(key, { model: String(run.model), effort: runEffort, trialsByTicket: new Map(), runs: 0, costs: [], times: [], tokenCounts: [], session: run.session || null });
         const group = groups.get(key);
         group.runs++;
-        group.cost_usd += num(run.cost_usd);
-        group.ms += num(run.ms);
-        group.tokens += num(run.tokens);
+        group.costs.push(numOrNull(run.cost_usd));
+        group.times.push(numOrNull(run.ms));
+        group.tokenCounts.push(numOrNull(run.tokens));
         if (!group.last_run || String(run.created_at || '') > group.last_run) group.last_run = String(run.created_at || '');
         for (const task of tasksByRun.get(run.id) || []) {
             if (task.score == null) continue;
             const id = String(task.task_id);
             if (!group.trialsByTicket.has(id)) group.trialsByTicket.set(id, []);
-            group.trialsByTicket.get(id).push({ score: num(task.score), cost_usd: num(task.cost_usd), ms: num(task.ms), tokens: num(task.tokens), run: run.id });
+            group.trialsByTicket.get(id).push({
+                score: num(task.score), cost_usd: numOrNull(task.cost_usd), ms: numOrNull(task.ms),
+                tokens: numOrNull(task.tokens), run: run.id,
+            });
         }
     }
     const entries = [];
@@ -245,6 +268,9 @@ function scoreRuns(runs, tasksByRun, { effort = null } = {}) {
         const passedPairs = perTicket.reduce((n, t) => n + t.passes, 0);
         const fullyPassed = perTicket.filter((t) => t.trials >= kk && t.pass_at_k).length;
         const solved = perTicket.filter((t) => t.passes > 0).length;
+        const cost = sumMeasured(group.costs);
+        const ms = sumMeasured(group.times);
+        const tokens = sumMeasured(group.tokenCounts);
         entries.push({
             model: group.model,
             effort: group.effort,
@@ -256,10 +282,13 @@ function scoreRuns(runs, tasksByRun, { effort = null } = {}) {
             pass_at_1: totalPairs ? Math.round((passedPairs / totalPairs) * 1e6) / 1e6 : null,
             pass_at_k: perTicket.length ? Math.round((fullyPassed / perTicket.length) * 1e6) / 1e6 : null,
             solved,
-            cost_usd: Math.round(group.cost_usd * 1e6) / 1e6,
-            cost_per_solved: solved ? Math.round((group.cost_usd / solved) * 1e6) / 1e6 : null,
-            ms: group.ms,
-            tokens: group.tokens,
+            cost_usd: cost == null ? null : Math.round(cost * 1e6) / 1e6,
+            cost_n: group.costs.filter((v) => v != null).length,
+            cost_per_solved: solved && cost != null ? Math.round((cost / solved) * 1e6) / 1e6 : null,
+            ms: ms == null ? null : Math.round(ms),
+            ms_n: group.times.filter((v) => v != null).length,
+            tokens: tokens == null ? null : Math.round(tokens),
+            tokens_n: group.tokenCounts.filter((v) => v != null).length,
             insufficient_trials: kk < TRIAL_MIN,
             per_ticket: perTicket.map((t) => ({
                 task_id: t.task_id,
@@ -268,6 +297,7 @@ function scoreRuns(runs, tasksByRun, { effort = null } = {}) {
                 pass_at_1: t.pass_at_1 == null ? null : Math.round(t.pass_at_1 * 1e6) / 1e6,
                 pass_at_k: t.pass_at_k,
                 cost_usd: t.cost_usd,
+                cost_n: t.cost_n,
             })).sort((a, b) => a.task_id.localeCompare(b.task_id)),
             last_run: group.last_run || null,
         });
