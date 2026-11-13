@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **The matchmaker for battles.** A battle no longer takes a random finished round and always puts its first entry on
+  side A. Every pair of every candidate round is now scored by what the vote is worth — `p(1-p) × (wA + wB)`, where
+  `p = 1 / (1 + 10^((rB - rA) / 400))` is the chance the board gives the first side and `w` the width of each
+  model's interval — and the pair the board knows least about is the one asked. A model the board has never rated, or
+  has fewer than 20 games for, counts as the board's widest interval at its median, so a new entrant is asked early
+  without drowning the rest; two models of one family (openai, anthropic, google, deepseek, qwen, meta, mistral, xai,
+  zhipu, moonshot) do not meet while another family is in the round; and the two sides are put in a random order, the
+  order shown being the order recorded in `bench_battle_seen`, so the ratings can correct for the position. The
+  candidates are read in two queries instead of one per round, and a private kind's clip payload is fetched only for
+  the two entries that are shown.
 - **Whole tickets, the gate (AL8).** A new kind, `codes.ticket`, scores a whole ticket — a goal and a typed check
   in `agent.goal@1`'s shape, with a token/turn/minute budget and a no-progress limit — over 3 to 5 trials per model
   and effort. A run is one trial; a task's score is 100 when the check exited 0 and 0 when it did not, and the
