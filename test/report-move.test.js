@@ -97,20 +97,20 @@ function runDoc(benchmark, over = {}) {
         await check('HTML pages answer 301 to their Report counterparts', async () => {
             const root = await t.get('/');
             assert.strictEqual(root.status, 301);
-            assert.strictEqual(root.headers.get('location'), 'https://openvibe.report/ai');
+            assert.strictEqual(root.headers.get('location'), 'https://openvibe.compare/ai');
             const bench = await t.get(`/benchmarks/${benchmarkId}`);
             assert.strictEqual(bench.status, 301);
-            assert.strictEqual(bench.headers.get('location'), `https://openvibe.report/ai/${benchmarkId}`);
+            assert.strictEqual(bench.headers.get('location'), `https://openvibe.compare/ai/${benchmarkId}`);
             const model = await t.get('/models/model-a');
             assert.strictEqual(model.status, 301);
-            assert.strictEqual(model.headers.get('location'), 'https://openvibe.report/ai/models/model-a');
-            for (const [path, location] of [['/docs', 'https://openvibe.report/ai/method'], ['/compare', 'https://openvibe.report/ai/compare'], ['/showcase', 'https://openvibe.report/ai'], ['/gallery', 'https://openvibe.report/ai']]) {
+            assert.strictEqual(model.headers.get('location'), 'https://openvibe.compare/ai/models/model-a');
+            for (const [path, location] of [['/docs', 'https://openvibe.compare/ai/method'], ['/compare', 'https://openvibe.compare/ai/compare'], ['/showcase', 'https://openvibe.compare/ai'], ['/gallery', 'https://openvibe.compare/ai']]) {
                 const r = await t.get(path);
                 assert.strictEqual(r.status, 301, path);
                 assert.strictEqual(r.headers.get('location'), location, path);
             }
             const tab = await t.get('/benchmarks?tab=pareto');
-            assert.strictEqual(tab.headers.get('location'), 'https://openvibe.report/ai?tab=pareto');
+            assert.strictEqual(tab.headers.get('location'), 'https://openvibe.compare/ai?tab=pareto');
         });
 
         await check('the API, MCP and render origin stay on Bench (no redirect)', async () => {

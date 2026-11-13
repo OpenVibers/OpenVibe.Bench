@@ -1,14 +1,15 @@
 'use strict';
 
 /**
- * The Bench pages moved into OpenVibe.Report's AI section (owner, 2026-11-08). Every public HTML page answers a
- * permanent redirect to its Report counterpart; the API, MCP, render origin, badges, embeds, sign-in, legal pages
- * and static assets stay here. A redirect keeps its query string only where Report reads one (`?tab=`).
+ * The Bench pages live on OpenVibe.Compare (11-13, the owner: every AI comparison and leaderboard is Compare's; from
+ * 11-08 they were Report's AI section, which now forwards to Compare). Every public HTML page answers one permanent
+ * redirect to its Compare counterpart (the same /ai paths); the API, MCP, render origin, badges, embeds, sign-in, legal pages
+ * and static assets stay here. A redirect keeps its query string only where Compare reads one (`?tab=`).
  *
  *   /                         → /ai
  *   /benchmarks               → /ai
  *   /benchmarks/<id>          → /ai/<id> when it is public and the viewer is not its owner; otherwise the page
- *                               stays here, because Report reads only Bench's public API (a private benchmark,
+ *                               stays here, because Compare reads only Bench's public API (a private benchmark,
  *                               a named reader and a share link have no Report page).
  *   /models/<model>           → /ai/models/<model>
  *   /compare                  → /ai/compare
@@ -19,7 +20,7 @@
  * an unlisted share link (/b/<token>), and the noindex task and run pages.
  */
 
-const DEFAULT_REPORT = 'https://openvibe.report';
+const DEFAULT_COMPARE = 'https://openvibe.compare';
 const decode = (s) => { try { return decodeURIComponent(s); } catch { return s; } };
 
 /** Paths that are machine endpoints, frames or not pages of the old Bench site: never redirected. */
@@ -27,13 +28,13 @@ const KEEP = [/^\/render(?:\/|$)/, /^\/vendor(?:\/|$)/, /^\/badge(?:\/|$)/, /^\/
     /^\/api(?:\/|$)/, /^\/mcp(?:\/|$)/, /^\/auth(?:\/|$)/, /^\/shared(?:\/|$)/, /^\/\.well-known(?:\/|$)/,
     /^\/metrics(?:\/|$)/, /^\/release(?:\.json|-metrics)?(?:\/|$)/, /^\/robots\.txt$/, /^\/sitemap\.xml$/,
     /^\/favicon\.ico$/, /^\/assets(?:\/|$)/,
-    // The owner's pages and the pages Report cannot render: the person's list and default, the create form, an
+    // The owner's pages and the pages Compare cannot render: the person's list and default, the create form, an
     // unlisted share link, and the noindex task/run pages. /benchmarks/<id> itself is decided by its page route.
     /^\/benchmarks\/mine(?:\/|$)/, /^\/benchmarks\/new(?:\/|$)/,
     /^\/benchmarks\/[^/]+\/(?:run|tasks\/[^/]+)(?:\/|$)/, /^\/b\/[^/]+$/];
 
-function targetFor(pathname, reportUrl) {
-    const base = String(reportUrl || DEFAULT_REPORT).replace(/\/+$/, '');
+function targetFor(pathname, compareUrl) {
+    const base = String(compareUrl || DEFAULT_COMPARE).replace(/\/+$/, '');
     const p = String(pathname || '/');
     if (p === '/' || p === '') return `${base}/ai`;
     if (p === '/docs' || p === '/docs/') return `${base}/ai/method`;
@@ -55,23 +56,23 @@ function targetFor(pathname, reportUrl) {
     // A Markdown twin of a moved page: its Report twin is the moved page's own twin. An unknown twin is still a 404.
     if (p.endsWith('.md')) {
         const page = p === '/index.md' ? '/' : p.slice(0, -3);
-        const moved = targetFor(page, reportUrl);
+        const moved = targetFor(page, compareUrl);
         return moved ? `${moved}.md` : null;
     }
     return null;
 }
 
-function createReportRedirects({ reportUrl = DEFAULT_REPORT } = {}) {
-    return function reportRedirect(req, res, next) {
+function createCompareRedirects({ compareUrl = DEFAULT_COMPARE } = {}) {
+    return function compareRedirect(req, res, next) {
         if (req.method !== 'GET' && req.method !== 'HEAD') return next();
         if (KEEP.some((re) => re.test(req.path))) return next();
-        const target = targetFor(req.path, reportUrl);
+        const target = targetFor(req.path, compareUrl);
         if (!target) return next();
-        // ?tab= is the one query Report's AI board reads from the old links; everything else is dropped.
+        // ?tab= is the one query Compare's AI board reads from the old links; everything else is dropped.
         const tab = req.query && typeof req.query.tab === 'string' && /^(elo|pareto|cost)$/.test(req.query.tab) ? `?tab=${req.query.tab}` : '';
         res.set('Cache-Control', 'public, max-age=3600');
         return res.redirect(301, target + tab);
     };
 }
 
-module.exports = { createReportRedirects, targetFor, DEFAULT_REPORT };
+module.exports = { createCompareRedirects, targetFor, DEFAULT_COMPARE };

@@ -10,7 +10,7 @@ const { boot, check, done } = require('./helpers/boot');
         for (const p of ['/llms.txt', '/llms-full.txt']) {
             const r = await t.get(p);
             assert.strictEqual(r.status, 301, p);
-            assert.strictEqual(r.headers.get('location'), `https://openvibe.report${p}`, p);
+            assert.strictEqual(r.headers.get('location'), `https://openvibe.compare${p}`, p);
         }
     });
     await check('the API docs stay readable as JSON on Bench', async () => {

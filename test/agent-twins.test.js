@@ -7,7 +7,7 @@ const { boot, check, done } = require('./helpers/boot');
 
 (async () => {
     const t = await boot();
-    const REPORT = 'https://openvibe.report';
+    const COMPARE = 'https://openvibe.compare';
     try {
         await check('the old public pages answer one 301 to their Report counterparts', async () => {
             const list = await t.get('/api/v1/benchmarks?limit=1');
@@ -24,14 +24,14 @@ const { boot, check, done } = require('./helpers/boot');
             for (const [p, target] of pages) {
                 const r = await t.get(p);
                 assert.strictEqual(r.status, 301, p);
-                assert.strictEqual(r.headers.get('location'), `${REPORT}${target}`, p);
+                assert.strictEqual(r.headers.get('location'), `${COMPARE}${target}`, p);
             }
         });
 
         await check('a Markdown twin follows its page; an unknown twin stays a 404', async () => {
             const docs = await t.get('/docs.md');
             assert.strictEqual(docs.status, 301);
-            assert.strictEqual(docs.headers.get('location'), `${REPORT}/ai/method.md`);
+            assert.strictEqual(docs.headers.get('location'), `${COMPARE}/ai/method.md`);
             const missing = await t.get('/no-such-page-here.md');
             assert.strictEqual(missing.status, 404);
         });

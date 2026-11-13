@@ -314,9 +314,9 @@ async function createApp(opts = {}) {
     });
 
     // ── Pages ───────────────────────────────────────────────
-    // The public pages moved to OpenVibe.Report's AI section (2026-11-08). The API, MCP, render, badge and embed
-    // routes above stay; an HTML page is a 301 to its Report counterpart.
-    app.use(require('./http/redirect').createReportRedirects({ reportUrl: config.reportUrl }));
+    // The public pages live on OpenVibe.Compare (11-13; Report's AI section held them from 11-08 and now forwards
+    // there). The API, MCP, render, badge and embed routes above stay; an HTML page is one 301 to its Compare page.
+    app.use(require('./http/redirect').createCompareRedirects({ compareUrl: config.compareUrl }));
     app.use(rateLimit({ windowMs: 60_000, limit: Number(process.env.BENCH_RATE_LIMIT_PER_MIN) || 300, standardHeaders: true, legacyHeaders: false }));
     app.use('/render', createRenderRoutes(ctx));
     app.use('/vendor', require('./http/vendor').createVendorRoutes());
