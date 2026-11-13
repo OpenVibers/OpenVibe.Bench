@@ -90,15 +90,20 @@ async function board(ctx, { bootstrap = style.BOOTSTRAP, force = false } = {}) {
 /**
  * The board of one kind: the votes of that kind alone, fitted the same way as the whole board. A pick and a watch both
  * ask about one kind at a time, and the band a model sits in there is the band that kind gives it.
+ *
+ * The votes can be handed in by a caller that needs the boards of several kinds at once (the matchmaker does), so the
+ * votes are read once and shared. The cache is the same either way: it is keyed on the votes of the kind, not on
+ * where they came from.
  */
-async function boardForKind(ctx, kindId, { bootstrap = style.BOOTSTRAP, force = false } = {}) {
+async function boardForKind(ctx, kindId, { bootstrap = style.BOOTSTRAP, force = false, votes = null } = {}) {
     const db = ctx.s.db;
-    const votes = (await loadVotes(db)).filter((v) => String(v.kind_id) === String(kindId));
-    const key = String(kindId) + ':' + votes.length + ':' + (votes.length ? votes[votes.length - 1].id : '') + ':' + num(bootstrap);
+    const all = Array.isArray(votes) ? votes : await loadVotes(db);
+    const kindVotes = all.filter((v) => String(v.kind_id) === String(kindId));
+    const key = String(kindId) + ':' + kindVotes.length + ':' + (kindVotes.length ? kindVotes[kindVotes.length - 1].id : '') + ':' + num(bootstrap);
     const hit = kindCache.get(String(kindId));
     if (!force && hit && hit.key === key && Date.now() - hit.at < 5 * 60_000) return hit.value;
-    const fit = style.fitRatings(gamesOf(votes), { bootstrap });
-    const value = { fit, votes, generated_at: new Date().toISOString() };
+    const fit = style.fitRatings(gamesOf(kindVotes), { bootstrap });
+    const value = { fit, votes: kindVotes, generated_at: new Date().toISOString() };
     kindCache.set(String(kindId), { key, at: Date.now(), value });
     return value;
 }
