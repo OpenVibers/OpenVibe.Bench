@@ -1189,12 +1189,61 @@ function createStore(s, { log = console, random = Math.random, config = null, ai
         return { eval: ev, runs };
     }
 
+    // ── Matches (bench.match@1, Contracts 0.422.0): every comparison on the network as one record ──
+    /**
+     * Record a match. A new id is inserted; an id the same service recorded before gains the judgements it did not
+     * have (a Codes race is judged by its tests first and by the merge later). Another service's id is refused.
+     */
+    async function recordMatch(match, { recordedBy }) {
+        const m = { ...match, id: match.id || `mat_${ids.ulid(s.now())}` };
+        return s.tx(async () => {
+            const prev = await db.maybe('SELECT * FROM bench_matches WHERE id = $1 FOR UPDATE', [m.id]);
+            let body = m;
+            let created = true;
+            if (prev) {
+                if (prev.recorded_by !== recordedBy) throw new BenchError(409, 'bench.match_taken', 'That match id was recorded by another service.');
+                const old = prev.body || {};
+                // jsonb keeps keys in its own order, so a judgement is known by its fields, not by its JSON text.
+                const keyOf = (j) => [j.judge, j.winner || '', j.signal || '', JSON.stringify(Object.entries(j.scores || {}).sort()),
+                    (j.by && j.by.type) || '', (j.by && j.by.id_hash) || '', String(j.at || '')].join('|');
+                const seen = new Set((old.judgements || []).map(keyOf));
+                body = { ...old, ...m, judgements: [...(old.judgements || []), ...(m.judgements || []).filter((j) => !seen.has(keyOf(j)))] };
+                created = false;
+                await db.exec('UPDATE bench_matches SET body = $2::jsonb, updated_at = $3::timestamptz WHERE id = $1', [m.id, JSON.stringify(body), s.iso()]);
+            } else {
+                await db.exec(
+                    `INSERT INTO bench_matches (id, source, task_kind, category, prompt_hash, recorded_by, body, at, created_at, updated_at)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz, $9::timestamptz, $9::timestamptz)`,
+                    [m.id, m.source, m.task.kind, m.task.category || null, m.task.prompt_hash || null, recordedBy, JSON.stringify(body), m.at, s.iso()],
+                );
+            }
+            const judges = [...new Set((body.judgements || []).map((j) => j.judge))];
+            const last = (body.judgements || []).slice(-1)[0];
+            const winner = last && last.winner && /^[a-h]$/.test(last.winner) ? ((body.slots || []).find((x) => x.slot === last.winner) || {}).entrant || null : null;
+            await insertOutbox('bench.match.recorded', {
+                match_id: body.id, source: body.source, task_kind: body.task.kind, category: body.task.category || null,
+                entrants: (body.slots || []).map((x) => x.entrant), judges, winner_entrant: winner, at: s.iso(),
+            });
+            return { match: body, created };
+        });
+    }
+
+    /** The matches a board reads: one task kind, optionally one category, since a day. */
+    async function matchesFor({ taskKind, category = null, since, limit = 50000 }) {
+        const rows = await db.many(
+            `SELECT body FROM bench_matches WHERE task_kind = $1 AND ($2::text IS NULL OR category = $2) AND at >= $3::timestamptz
+             ORDER BY at DESC LIMIT $4`,
+            [String(taskKind), category, since, Math.max(1, Math.min(200000, Number(limit) || 50000))],
+        );
+        return rows.map((r) => r.body);
+    }
+
     return {
         wireKind, wireTask, wireRound, wireEntry, wireJudgement, wireRating, wireEval, wireEvalRun,
         insertOutbox, seedKinds, listKinds, getKind,
         createTask, getTask,
         createRound, createArenaRound, getRound, addEntry, maybeReady, finishRound, clipPolicies,
-        nextJudgement, castJudgement, pairwiseGames,
+        nextJudgement, castJudgement, pairwiseGames, recordMatch, matchesFor,
         board, ratings, valueRows, modelSummary, dataset, datasetJsonl,
         createEval, getEval, runEval, evalResults, evalDailyCount,
         KINDS, JUDGES, WINNERS, BASE_ELO, CATEGORY_DEFAULT, shuffle,

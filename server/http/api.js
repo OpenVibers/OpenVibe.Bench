@@ -14,6 +14,8 @@
  *   POST   /rounds/:id/judgements
  *   GET    /boards/:kindId?type=elo|willing|pareto|cost&voters=people|anon
  *   GET    /models/:model
+ *   POST   /matches                   (bench.match@1 from a service with bench.judgement.cast)
+ *   GET    /factors?task_kind=&category=&days=   model and harness apart, with intervals (bench.rating@1 factors)
  *   GET    /datasets/:kindId.jsonl
  *   POST   /evals
  *   GET    /evals/:id
@@ -412,6 +414,41 @@ function createApi(ctx) {
         if (!out) return problem(res, 404, 'bench.eval_not_found', 'No such eval (or it is not yours).');
         res.set('Cache-Control', 'private, no-store');
         return res.json(out);
+    });
+
+    // ── Matches and the factor boards (compare-arena-ecosystem.md, Contracts 0.422.0) ──
+    // A service records a match it ran (the Arena's race, a Codes race, a check job, a game); the boards rate model
+    // and harness apart from every match of a task kind (server/rating/factors.js), cached a few minutes.
+    r.post('/matches', principal.requireCapability('bench.judgement.cast'), async (req, res) => {
+        const body = { ...(req.body || {}) };
+        if (!body.id) body.id = `mat_${ids.ulid(Date.now())}`;
+        const checked = require('openvibe-contracts').validate('bench.match@1', body);
+        if (!checked.valid) return invalid(res, `not a bench.match@1: ${checked.errors.slice(0, 3).map((e) => `${e.path} ${e.message}`).join('; ')}`);
+        try {
+            const out = await bench.recordMatch(body, { recordedBy: req.principal.requester });
+            return res.status(out.created ? 201 : 200).json(out);
+        } catch (err) { return failed(res, err); }
+    });
+
+    const factorCache = new Map();
+    r.get('/factors', async (req, res) => {
+        const taskKind = String(req.query.task_kind || '');
+        if (!['chat', 'code', 'design', 'image', 'speech', 'search', 'computer', 'game'].includes(taskKind)) return invalid(res, 'task_kind must be chat, code, design, image, speech, search, computer or game');
+        const category = req.query.category ? String(req.query.category).slice(0, 64) : null;
+        const days = [7, 30, 90, 365].includes(Number(req.query.days)) ? Number(req.query.days) : 90;
+        const key = `${taskKind}|${category || ''}|${days}`;
+        const hit = factorCache.get(key);
+        if (hit && hit.until > Date.now()) { res.set('Cache-Control', 'public, max-age=120'); return res.json(hit.value); }
+        const since = new Date(Date.now() - days * 86400000).toISOString();
+        const matches = await bench.matchesFor({ taskKind, category, since });
+        const { gamesOf, COVARIATES } = require('../rating/match-games');
+        const games = gamesOf(matches);
+        const fit = require('../rating/factors').fitFactors(games, { covariates: COVARIATES, bootstrap: games.length > 20000 ? 60 : 150 });
+        const value = { task_kind: taskKind, category, days, matches: matches.length, games: games.length, style_control: true, ...fit };
+        factorCache.set(key, { until: Date.now() + 5 * 60_000, value });
+        if (factorCache.size > 200) factorCache.delete(factorCache.keys().next().value);
+        res.set('Cache-Control', 'public, max-age=120');
+        return res.json(value);
     });
 
     return r;
