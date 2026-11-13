@@ -321,13 +321,13 @@ function createPageRoutes(ctx) {
     r.get('/benchmarks/:ref', async (req, res) => {
         const out = await readableBenchmark(req, req.params.ref);
         if (!out) return notFound(req, res, 'benchmark');
-        // The public page moved to Report (2026-11-08), but Report reads only the public API: its owner, a named
+        // The public page lives on Compare (11-13), which reads only the public API: its owner, a named
         // reader and an unlisted link keep the page here.
         const subject = subjectOf(req);
         const owner = subject != null && String(out.benchmark.owner) === String(subject);
         if (!owner && out.benchmark.visibility === 'public') {
-            const report = String(config.reportUrl || 'https://openvibe.report').replace(/\/+$/, '');
-            return res.redirect(301, `${report}/ai/${encodeURIComponent(out.benchmark.id)}`);
+            const compare = String(config.compareUrl || 'https://openvibe.compare').replace(/\/+$/, '');
+            return res.redirect(301, `${compare}/ai/${encodeURIComponent(out.benchmark.id)}`);
         }
         return renderBenchmark(req, res, out);
     });

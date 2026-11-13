@@ -28,7 +28,7 @@ const VENDOR = Object.freeze({
 });
 /** The pages that may frame the wrapper and the model documents. OpenVibe.Design shows its arena's blind pairs in
  *  these frames (plan L51: Design's /arena is a view of Bench's design kinds). */
-const FRAME_ANCESTORS = 'https://bench.openvibe.services https://openvibe.report https://openvibe.design';
+const FRAME_ANCESTORS = 'https://bench.openvibe.services https://openvibe.compare https://openvibe.report https://openvibe.design';
 /** The wrapper's own policy: its one inline script under a fresh nonce, its child frame only from the render origin. */
 function wrapperCsp(nonce) {
     return "default-src 'none'; script-src 'nonce-" + nonce + "'; style-src 'unsafe-inline'; frame-src " + RENDER_ORIGIN

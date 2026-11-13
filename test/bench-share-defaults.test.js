@@ -92,7 +92,7 @@ const { boot, check, done } = require('./helpers/boot');
             assert.strictEqual(madePublic.status, 200, madePublic.text.slice(0, 200));
             const anon = await t.get(`/benchmarks/${id}`);
             assert.strictEqual(anon.status, 301);
-            assert.strictEqual(anon.headers.get('location'), `https://openvibe.report/ai/${id}`);
+            assert.strictEqual(anon.headers.get('location'), `https://openvibe.compare/ai/${id}`);
             const owner = await t.get(`/benchmarks/${id}`, { as: alice });
             assert.strictEqual(owner.status, 200, 'the owner keeps the page with the Share controls');
             assert.ok(owner.text.includes('Sharing'));

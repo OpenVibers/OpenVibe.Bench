@@ -334,7 +334,7 @@ function benchmarkCard(b) {
 
 /**
  * A person's own page: the default audience for new benchmarks, "apply to all", and a Share button on each one.
- * The page stays on Bench because Report reads only the public API: a private or unlisted benchmark, and the
+ * The page stays on Bench because Compare reads only the public API: a private or unlisted benchmark, and the
  * person's own default, have no Report page.
  */
 function myBenchmarks({ benchmarks = [], defaultAudience = 'private', baseUrl = '', notice = null, error = null } = {}) {
