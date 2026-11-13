@@ -34,7 +34,7 @@ async function start() {
     // queues requests in the kernel instead of answering 502. Without the socket unit, the usual listen.
     const socketActivated = process.env.LISTEN_FDS === '1' && Number(process.env.LISTEN_PID) === process.pid;
     const server = app.listen(...(socketActivated ? [{ fd: 3 }] : [config.port, config.host]), () => {
-        console.log(`[OpenVibe.Bench] ${config.nodeEnv} on http://${config.host}:${config.port} → ${config.baseUrl} (db ${ctx.s.db.store})`);
+        console.log(`[OpenVibe.Bench] ${config.nodeEnv} on http://${config.host}:${config.port} (public ${config.baseUrl}) (db ${ctx.s.db.store})`);
         ctx.keys.ensure().catch(() => {});
     });
     server.keepAliveTimeout = 65_000;
