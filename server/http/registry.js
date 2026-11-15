@@ -338,7 +338,8 @@ function createRegistryApi(ctx) {
             const run = await registry.getRun(String(req.params.id || ''));
             if (!run) return problem(res, 404, 'bench.run_not_found', 'No such run.');
             const bm = await registry.getBenchmark(run.benchmark_id);
-            if (bm && !mayRead(req, bm)) return problem(res, 404, 'bench.run_not_found', 'No such run.');
+            // mayRead is async (the share rows): awaited, or the Promise is truthy and nothing is ever denied (11-15).
+            if (bm && !await mayRead(req, bm)) return problem(res, 404, 'bench.run_not_found', 'No such run.');
             res.set('Cache-Control', bm && bm.visibility === 'public' ? 'public, max-age=60' : 'private, no-store');
             return res.json({ run });
         } catch (err) { return failed(res, err); }
