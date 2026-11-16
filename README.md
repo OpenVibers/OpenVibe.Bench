@@ -39,7 +39,6 @@ JSON under `/api/v1`; errors are `application/problem+json`. The full list is in
 The public reads Report's AI pages use are `GET /api/v1/overview`, `GET /api/v1/benchmarks`, `GET /api/v1/rankings`, `GET /api/v1/runs`, `GET /api/v1/models/:model/summary` and `GET /api/v1/runs/:id`; the long list is at `/openapi.json` and in Report's method page.
 
 <!-- versions:start -->
-- openvibe-contracts: v0.422.0
 - openvibe-sdk: v0.172.0
 - openvibe-shared: v4.277.0
 <!-- versions:end -->
